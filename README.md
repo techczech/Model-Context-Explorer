@@ -78,6 +78,10 @@ This is a static web application and can be easily hosted on Google Cloud Storag
 
 Your application is now live! You can access it via `https://storage.googleapis.com/YOUR_BUCKET_NAME/index.html`.
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ## Acknowledgements
 
 *   Created by **Dominik Lukeš**.
