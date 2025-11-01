@@ -1,0 +1,5 @@
+{
+  "name": "Model Context Explorer",
+  "description": "An application to explore how Large Language Models use context to generate responses. It demonstrates various scenarios like normal chat, data analysis, search-grounded chat, and retrieval-augmented generation (RAG).",
+  "requestFramePermissions": []
+}
