@@ -1,3 +1,12 @@
+---
+name: "Model Context Explorer"
+description: "Makes the otherwise invisible mechanics of model context windows concrete and manipulable."
+categories: [interactive-learning-objects, web-app, built-by-ai, powered-by-ai]
+updated: 2026-07-16
+deployments:
+  Appsite:
+    "Model Context Explorer": https://modelcontextexplorer.edutools.fyi/
+---
 # Model Context Explorer
 
 This application was created by Dominik Lukeš using Google AI Studio.
