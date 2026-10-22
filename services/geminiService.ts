@@ -4,7 +4,7 @@ import { GoogleGenAI, GenerateContentResponse, Type, Content } from "@google/gen
 import { Scenario, Message, ContextDetail, GroundingChunk, RetrievedChunk } from '../types';
 import { MOCK_DOCUMENTS, SCENARIO_CONFIGS } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+import { beginSession, type VisitorSession } from './visitorKey';
 const model = "gemini-2.5-flash";
 
 // Helper for rough token count estimation
@@ -80,26 +80,32 @@ export const getGeminiResponse = async (
   conversation: Message[],
   userMessage: string
 ): Promise<{ text: string; context: ContextDetail }> => {
+  const session = beginSession();
+  try {
+  let result: { text: string; context: ContextDetail };
   switch (scenario) {
     case Scenario.NORMAL:
-      return getNormalChatResponse(conversation, userMessage);
+      result = await getNormalChatResponse(conversation, userMessage, session); break;
     case Scenario.DATA:
-      return getDataAnalysisResponse(conversation, userMessage);
+      result = await getDataAnalysisResponse(conversation, userMessage, session); break;
     case Scenario.SEARCH:
-      return getSearchChatResponse(conversation, userMessage);
+      result = await getSearchChatResponse(conversation, userMessage, session); break;
     case Scenario.DOCUMENT:
-      return getDocumentChatResponse(conversation, userMessage);
+      result = await getDocumentChatResponse(conversation, userMessage, session); break;
     default:
       throw new Error(`Unknown scenario: ${scenario}`);
   }
+  session.assertCurrent();
+  return session.redact(result);
+  } finally { session.close(); }
 };
 
 // Scenario 1: Normal Chat
-const getNormalChatResponse = async (conversation: Message[], userMessage: string): Promise<{ text: string, context: ContextDetail }> => {
+const getNormalChatResponse = async (conversation: Message[], userMessage: string, session: VisitorSession): Promise<{ text: string, context: ContextDetail }> => {
   const systemInstruction = SCENARIO_CONFIGS[Scenario.NORMAL].systemPrompt;
   const history = buildHistory(conversation);
   
-  const response = await ai.models.generateContent({
+  const response = await session.generateContent({
     model,
     contents: [...history, { role: 'user', parts: [{ text: userMessage }] }],
     config: { systemInstruction },
@@ -123,7 +129,7 @@ const getNormalChatResponse = async (conversation: Message[], userMessage: strin
 
 
 // Scenario 2: Data Analysis Chat (with real Function Calling)
-const getDataAnalysisResponse = async (conversation: Message[], userMessage: string): Promise<{ text: string, context: ContextDetail }> => {
+const getDataAnalysisResponse = async (conversation: Message[], userMessage: string, session: VisitorSession): Promise<{ text: string, context: ContextDetail }> => {
   const systemInstruction = SCENARIO_CONFIGS[Scenario.DATA].systemPrompt;
   const history = buildHistory(conversation);
 
@@ -137,7 +143,7 @@ const getDataAnalysisResponse = async (conversation: Message[], userMessage: str
 
   const initialContents = [...history, { role: 'user', parts: [{ text: userMessage }] }];
 
-  const initialResponse = await ai.models.generateContent({
+  const initialResponse = await session.generateContent({
     model,
     contents: initialContents,
     config: { systemInstruction, tools: [codeInterpreterTool] },
@@ -206,7 +212,7 @@ const getDataAnalysisResponse = async (conversation: Message[], userMessage: str
   }
 
 
-  const finalResponse = await ai.models.generateContent({
+  const finalResponse = await session.generateContent({
     model,
     contents: [
       ...initialContents,
@@ -239,12 +245,12 @@ responseText,
 
 
 // Scenario 3: Search Chat
-const getSearchChatResponse = async (conversation: Message[], userMessage: string): Promise<{ text: string, context: ContextDetail }> => {
+const getSearchChatResponse = async (conversation: Message[], userMessage: string, session: VisitorSession): Promise<{ text: string, context: ContextDetail }> => {
   const systemInstruction = SCENARIO_CONFIGS[Scenario.SEARCH].systemPrompt;
   const history = buildHistory(conversation);
   const searchTool = { googleSearch: {} };
 
-  const response = await ai.models.generateContent({
+  const response = await session.generateContent({
     model,
     contents: [...history, { role: 'user', parts: [{ text: userMessage }] }],
     config: { systemInstruction, tools: [searchTool] },
@@ -285,7 +291,7 @@ const getSearchChatResponse = async (conversation: Message[], userMessage: strin
 
 
 // Scenario 4: Document Library Chat (RAG)
-const getDocumentChatResponse = async (conversation: Message[], userMessage: string): Promise<{ text: string, context: ContextDetail }> => {
+const getDocumentChatResponse = async (conversation: Message[], userMessage: string, session: VisitorSession): Promise<{ text: string, context: ContextDetail }> => {
   const systemInstruction = SCENARIO_CONFIGS[Scenario.DOCUMENT].systemPrompt;
   
   // 1. Chunk all documents into sentences
@@ -353,7 +359,7 @@ ${contextText}
 
   const history = buildHistory(conversation);
 
-  const response = await ai.models.generateContent({
+  const response = await session.generateContent({
     model,
     contents: [...history, { role: 'user', parts: [{ text: ragPrompt }] }],
     config: { systemInstruction },

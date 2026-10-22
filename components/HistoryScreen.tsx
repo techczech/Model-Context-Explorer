@@ -79,7 +79,7 @@ const HistoryScreen: React.FC = () => {
                         }
                     }
                 } catch (e) {
-                    console.error("Failed to parse history from localStorage:", key, e);
+
                 }
             }
         }
@@ -148,10 +148,10 @@ const HistoryScreen: React.FC = () => {
                     <p className="text-slate-500 dark:text-slate-400 mt-2">Start a conversation in one of the scenarios to see your history here.</p>
                 </div>
             )}
-            <HistoryModal 
-                history={selectedHistory} 
-                onClose={() => setSelectedHistory(null)} 
-                onShowContext={handleShowContext} 
+            <HistoryModal
+                history={selectedHistory}
+                onClose={() => setSelectedHistory(null)}
+                onShowContext={handleShowContext}
             />
             <ContextModal context={selectedContext} onClose={() => setSelectedContext(null)} />
         </div>

@@ -336,7 +336,7 @@ const ContextModal: React.FC<ContextModalProps> = ({ context, onClose }) => {
                       </li>
                     ))}
                   </ul>
-                </section>
+                </Section>
               )}
             
             <p className="text-xs text-slate-500 dark:text-slate-500 mt-6 text-center font-sans">* Token counts are estimated for demonstration purposes (approx. 4 chars/token).</p>

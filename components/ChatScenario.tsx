@@ -1,3 +1,4 @@
+import { safeProviderError, redactVisitorKey } from '../services/visitorKey';
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Message, Scenario, ContextDetail, Document } from '../types';
@@ -12,11 +13,11 @@ const DocViewerModal: React.FC<{ doc: Document | null; onClose: () => void }> = 
   if (!doc) return null;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-8"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
@@ -44,8 +45,8 @@ const DocumentSidebar: React.FC<{ onViewDoc: (doc: Document) => void }> = ({ onV
     <div className="flex-grow p-4 overflow-y-auto space-y-2">
       <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">The model can retrieve information from these documents (click to view):</p>
       {MOCK_DOCUMENTS.map((doc, i) => (
-        <button 
-          key={i} 
+        <button
+          key={i}
           onClick={() => onViewDoc(doc)}
           className="w-full text-left bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 p-3 rounded-lg transition-colors"
         >
@@ -61,13 +62,13 @@ const ChatPanel: React.FC<{
   isDocumentScenario: boolean;
 }> = ({ config, isDocumentScenario }) => {
   const storageKey = `chatHistory_${config.id}`;
-  
+
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const saved = localStorage.getItem(storageKey);
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
-      console.error("Failed to load or parse chat history:", e);
+
       localStorage.removeItem(storageKey); // Clear corrupted data
       return [];
     }
@@ -96,7 +97,7 @@ const ChatPanel: React.FC<{
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', text: input };
+    const userMessage: Message = { id: Date.now().toString(), role: 'user', text: redactVisitorKey(input) };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -107,17 +108,17 @@ const ChatPanel: React.FC<{
       const conversationHistory = messages.filter(m => !m.isTyping);
       const { text, context } = await getGeminiResponse(config.id, conversationHistory, input);
       const modelMessage: Message = { id: (Date.now() + 1).toString(), role: 'model', text, context };
-      
+
       setMessages(prev => [...prev.filter(m => !m.isTyping), modelMessage]);
     } catch (error) {
-      console.error("Error getting response from Gemini:", error);
-      const errorMessage: Message = { id: (Date.now() + 1).toString(), role: 'model', text: "Sorry, I encountered an error. Please try again." };
+
+      const errorMessage: Message = { id: (Date.now() + 1).toString(), role: 'model', text: safeProviderError(error) };
       setMessages(prev => [...prev.filter(m => !m.isTyping), errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   const handleShowContext = (context: ContextDetail) => {
     setSelectedContext(context);
   };
@@ -224,18 +225,18 @@ const ChatScenario: React.FC = () => {
       navigate('/');
     }
   }, [scenario, navigate]);
-  
+
   if (!config) {
     return null; // Or a loading/error state
   }
-  
+
   const isDocumentScenario = config.id === Scenario.DOCUMENT;
 
   return (
     <>
       <div className={`mx-auto ${isDocumentScenario ? 'max-w-7xl flex flex-row gap-6' : 'max-w-4xl'}`}>
         {isDocumentScenario && <DocumentSidebar onViewDoc={setViewingDoc} />}
-        <ChatPanel config={config} isDocumentScenario={isDocumentScenario} />
+        <ChatPanel key={config.id} config={config} isDocumentScenario={isDocumentScenario} />
       </div>
       <DocViewerModal doc={viewingDoc} onClose={() => setViewingDoc(null)} />
     </>

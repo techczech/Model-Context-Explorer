@@ -1,0 +1,1 @@
+module.exports = { content: ['./index.html', './*.{ts,tsx}', './components/**/*.{ts,tsx}'], darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] }, animation: { 'bounce-slow': 'bounce 1s infinite' } } }, plugins: [require('@tailwindcss/typography')] };

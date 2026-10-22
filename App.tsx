@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link } from 'react-router-dom';
+import ApiSettings from './components/ApiSettings';
 import HomeScreen from './components/HomeScreen';
 import ChatScenario from './components/ChatScenario';
 import HistoryScreen from './components/HistoryScreen';
@@ -50,6 +51,7 @@ const App: React.FC = () => {
             </div>
           </div>
         </header>
+        <ApiSettings />
         <main className="flex-grow container mx-auto p-4 md:p-6">
           <Routes>
             <Route path="/" element={<HomeScreen />} />

@@ -6,20 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@google/genai": "^1.13.0",
+    "material-symbols": "^0.29.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@google/genai": "^1.13.0",
-    "react-router-dom": "^7.8.0",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0",
-    "react-syntax-highlighter": "15.5.0"
+    "react-router-dom": "^7.8.0",
+    "react-syntax-highlighter": "15.5.0",
+    "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
