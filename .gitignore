@@ -27,3 +27,6 @@ tests/.generated/
 
 # Context Explorer local checks
 .checks/
+
+# wrangler local state
+.wrangler
