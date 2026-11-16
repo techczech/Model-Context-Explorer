@@ -1,0 +1,28 @@
+Verbatim excerpts from openai/codex at commit c0d47262f33fdb866e2012baad52cf6584e37c03 (Apache-2.0). Path and line numbers before each excerpt.
+
+=== codex-rs/protocol/src/openai_models.rs, lines 583-594
+    pub fn auto_compact_token_limit(&self) -> Option<i64> {
+        let context_limit = self
+            .resolved_context_window()
+            .map(|context_window| (context_window * 9) / 10);
+        let config_limit = self.auto_compact_token_limit;
+        if let Some(context_limit) = context_limit {
+            return Some(
+                config_limit.map_or(context_limit, |limit| std::cmp::min(limit, context_limit)),
+            );
+        }
+        config_limit
+    }
+
+=== codex-rs/models-manager/src/model_info.rs, lines 129-133
+        context_window: Some(272_000),
+        max_context_window: Some(272_000),
+        auto_compact_token_limit: None,
+        comp_hash: None,
+        effective_context_window_percent: 95,
+
+=== codex-rs/core/src/compact.rs, line 69
+const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
+
+=== codex-rs/core/src/compact.rs, line 408
+    let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");

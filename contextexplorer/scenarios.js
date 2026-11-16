@@ -1,28 +1,114 @@
 /* Context Explorer: scripted scenarios.
    Data only. app.js builds the context at every step from these events.
-   All conversations, files, websites and figures are invented examples.
+   Conversations, files, websites and figures in the chats are invented.
+   Blocks marked "real" quote sources/ through real-sources.js (generated; see sources/PROVENANCE.md).
 
    Scenario fields
-     system, instructions{file,text}, tools[], toolsNote, toolsTokens, skills[], window
+     id, title, short, model, window, setup[] (blocks before the first message), setupLesson
      turns[]: { choices[], lesson, events[] }
+   Block fields
+     type, label, text, tokens (optional; otherwise characters / 4), excerpt, prov {kind, text, url}
+     prov.kind: 'real' (quoted from sources/), 'mixed' (real format or text, illustrative content),
+                'estimate' (size worked out from the sources, text illustrative), 'illustrative'
    Event kinds
-     think   {text, secs}
-     tool    {name, args, result, title, kind:'tool'|'search', chips[], type, resultTokens, excerpt}
-     sub     {name, task, summary, steps[], sub:{blocks[]}}
-     compact {text, tokens, note}
-     answer  {text, quote, widget}
-   "tokens" overrides the rough count (characters / 4) where the text shown is an excerpt of a larger real block.
+     think     {text, secs}
+     tool      {name, args | input, result, title, kind:'tool'|'search', chips[], type, resultTokens, excerpt}
+     sub       {name, task, summary, steps[], sub:{blocks[]}}
+     trigger   {limit}                        harness: auto-compaction fires
+     summarise {summary, summaryTokens}       harness: asks the model for a handoff summary
+     compact   {reattach[], plan, lost}       harness: builds the new context
+     note      {title, text}                  harness or explainer note; does not change the context
+     answer    {text, quote, after, widget}
 */
+(function () {
+const R = window.CE_REAL;
+const fmt = n => Math.round(n).toLocaleString('en-GB');
+
+/* Sizes worked out from the sources (sources/PROVENANCE.md, section 4). */
+const AVG = 375;          // tokens in one tool definition, on average (22 real definitions)
+const SKILL_LINE = 38;    // tokens in one skill line: "- name: description (file: path)"
+const BASE_EST = 4400;    // a work agent's base prompt; Codex CLI's real one is 4,389
+const AVG_NOTE = 'Average size of a real tool definition: about 375 tokens (22 open-source definitions in Codex CLI and Gemini CLI).';
+
+const real = (src, extra) => ({ kind: 'real', text: (extra ? extra + ' ' : '') + 'Source: ' + src.name + '.', url: src.url });
+
+function workSystem(text) {
+  return { type: 'system', label: 'System prompt', excerpt: true, tokens: BASE_EST,
+    text: text + '\n\n[… illustrative excerpt. A full base prompt also covers tone, formatting, safety, planning and how to use each tool …]',
+    prov: { kind: 'estimate', text: 'Text: illustrative. Size: about ' + fmt(BASE_EST) + ' tokens, close to Codex CLI\'s real base instructions (' + fmt(R.codexBase.tokens) + ').', url: R.codexBase.url } };
+}
+function workTools(shown, total, others) {
+  return { type: 'tools', label: 'Tool definitions: ' + total + ' built-in tools', excerpt: true, tokens: total * AVG,
+    text: JSON.stringify(shown, null, 2) + '\n\n[… ' + (total - shown.length) + ' more tool definitions not shown' + (others ? ': ' + others : '') + ' …]',
+    prov: { kind: 'estimate', text: 'Tools: illustrative. Size: ' + total + ' tools × ' + AVG + ' tokens = ' + fmt(total * AVG) + '. ' + AVG_NOTE } };
+}
+function mcpBlock(servers) {
+  const n = servers.reduce((s, x) => s + x[1], 0);
+  return { type: 'tools', label: 'Tool definitions: ' + n + ' connector (MCP) tools', excerpt: true, tokens: n * AVG,
+    text: 'Tools added by ' + servers.length + ' connected MCP servers. Each tool arrives with its own name, description and input schema.\n\n'
+      + servers.map(x => '- ' + x[0] + ': ' + x[1] + ' tools').join('\n') + '\n\n[… ' + n + ' definitions not shown …]',
+    prov: { kind: 'estimate', text: 'Servers: illustrative. Size: ' + n + ' tools × ' + AVG + ' tokens = ' + fmt(n * AVG) + '. ' + AVG_NOTE } };
+}
+function skillsBlock(lines, total) {
+  const more = total - lines.length;
+  return { type: 'skills', label: 'Skill list: ' + total + ' skills (names and descriptions only)', excerpt: true,
+    tokens: R.codexSkills.tokens + total * SKILL_LINE,
+    text: R.codexSkills.head + '\n' + lines.map(l => '- ' + l[0] + ': ' + l[1] + ' (file: ' + l[2] + ')').join('\n')
+      + (more ? '\n[… ' + more + ' more skills not shown …]' : '') + '\n' + R.codexSkills.usage,
+    prov: { kind: 'mixed', text: 'Heading, intro and usage rules: real text from Codex CLI (' + fmt(R.codexSkills.tokens) + ' tokens). Skills: illustrative, ' + total + ' lines at about ' + SKILL_LINE + ' tokens each.', url: R.codexSkills.url } };
+}
+function envBlock(cwd) {
+  return { type: 'env', label: 'Environment context',
+    text: '<environment_context>\n  <cwd>' + cwd + '</cwd>\n  <shell>zsh</shell>\n  <current_date>2026-11-16</current_date>\n  <timezone>Europe/London</timezone>\n</environment_context>',
+    prov: { kind: 'mixed', text: 'Format: real, from Codex CLI. Values: illustrative. This format gives the working directory, shell, date and time zone; the shell implies the operating system.', url: R.codexEnv.url } };
+}
+function agentsBlock(dir, body, tokens) {
+  return { type: 'instructions', label: 'Instruction file: AGENTS.md', excerpt: true, tokens,
+    text: '# AGENTS.md instructions for ' + dir + '\n\n<INSTRUCTIONS>\n' + body + '\n[… illustrative excerpt …]\n</INSTRUCTIONS>',
+    prov: { kind: 'mixed', text: 'Wrapper: real, from Codex CLI. Content: illustrative, sized as a typical project file of about ' + fmt(tokens) + ' tokens.', url: R.codexAgents.url } };
+}
+/* The Codex CLI set-up, used by "A real agent harness" and "Long task and compaction". */
+function codexSetup(o) {
+  return [
+    { type: 'system', label: 'Base instructions (Codex CLI)', text: R.codexBase.text, tokens: R.codexBase.tokens, excerpt: true,
+      prov: real(R.codexBase, 'Shown: ' + R.codexBase.shown + ' of ' + R.codexBase.paragraphs + ' paragraphs. Licence: Apache-2.0, copyright OpenAI.') },
+    { type: 'system', label: 'Permissions instructions (Codex CLI)', text: R.codexSandbox.text, tokens: R.codexSandbox.tokens,
+      prov: real(R.codexSandbox, 'Template; the network setting is filled in for this example.') },
+    { type: 'tools', label: 'Tool definitions: ' + R.codexTools.count + ' core tools (Codex CLI)', text: R.codexTools.text, tokens: R.codexTools.tokens, excerpt: true,
+      prov: real(R.codexTools, 'Codex defines tools in Rust; this JSON was built by hand from that source, with every description copied word for word. Licence: Apache-2.0.') },
+    { type: 'tools', label: 'Tool definitions: 10 more built-in tools', tokens: 10 * AVG, excerpt: true,
+      text: 'Codex CLI defines more tools in the same source folder, for example for sub-agents, MCP resources, tool search, asking the user a question and running code. Which ones are switched on depends on the model and settings.\n\n[… 10 definitions not shown …]',
+      prov: { kind: 'estimate', text: 'Not copied from the source. Size: 10 tools × ' + AVG + ' tokens = ' + fmt(10 * AVG) + '. ' + AVG_NOTE, url: 'https://github.com/openai/codex/tree/' + R.codexSha + '/codex-rs/core/src/tools/handlers' } },
+    mcpBlock(o.mcp),
+    agentsBlock(o.cwd, o.agents, o.agentsTokens),
+    skillsBlock(o.skills, o.skillsTotal),
+    envBlock(o.cwd)
+  ];
+}
+
+const WORK_SKILLS = [
+  ['board-briefing', 'Write one-page briefings for the Library Board: structure, tone and length.', '.agents/skills/board-briefing/SKILL.md'],
+  ['meeting-minutes', 'Turn rough notes into minutes with actions and owners.', '.agents/skills/meeting-minutes/SKILL.md'],
+  ['figure-check', 'Check figures in a draft against source spreadsheets.', '.agents/skills/figure-check/SKILL.md'],
+  ['plain-english', 'Rewrite text at a reading age of 12 without losing meaning.', '.agents/skills/plain-english/SKILL.md'],
+  ['slide-outline', 'Outline a short talk as slides with one point each.', '.agents/skills/slide-outline/SKILL.md']
+];
+
 window.SCENARIOS = [
 
 /* ------------------------------------------------------------ 1 */
 {
   id: 'chat',
-  title: 'Plain chat',
-  short: 'A conversation with no tools. Only the history grows.',
-  blurb: 'No tools and no files. The context is the system prompt plus every message so far.',
+  title: 'The idea',
+  short: 'A short chat with a tiny made-up system prompt, simplified to show the idea. Only the history grows.',
+  model: 'Simplified example',
   window: 200000,
-  system: "You are a helpful assistant for office and knowledge work. Write in plain British English. Keep answers short unless asked for more. If you are not sure, say so.\n\nToday's date: 16 November 2026.",
+  setup: [
+    { type: 'system', label: 'System prompt (simplified)',
+      text: "You are a helpful assistant for office and knowledge work. Write in plain British English. Keep answers short unless asked for more. If you are not sure, say so.\n\nToday's date: 16 November 2026.",
+      prov: { kind: 'illustrative', text: 'Simplified to show the idea. Real system prompts run to thousands of tokens: see the next two examples.' } }
+  ],
+  setupLesson: 'Simplified to show the idea. Nothing has been typed yet, but the model already holds a system prompt. A real one is far longer: see the next example.',
   turns: [
     {
       choices: [
@@ -72,17 +158,144 @@ window.SCENARIOS = [
 
 /* ------------------------------------------------------------ 2 */
 {
+  id: 'assistant',
+  title: 'A real chat assistant',
+  short: "A chat app's real published system prompt: thousands of tokens before you type a word.",
+  model: 'Claude app (published prompt)',
+  window: 200000,
+  setup: [
+    { type: 'system', label: 'System prompt (Claude app, published by Anthropic)', text: R.claude.text, tokens: R.claude.tokens, excerpt: true,
+      prov: real(R.claude, 'Shown: ' + R.claude.shown + ' of ' + R.claude.paragraphs + ' paragraphs, word for word. The published version covers behaviour only: Anthropic does not publish the tool definitions or tool instructions that the app adds.') },
+    { type: 'tools', label: 'Tool definitions: 12 tools', excerpt: true, tokens: 12 * AVG,
+      text: 'Not published. What a chat app with web search, files and memory typically defines (names and wording illustrative):\n\n- web_search: search the web and return results with links\n- web_fetch: read the text of a web page\n- create_file, view_file, edit_file: make and change documents\n- run_code: run code in a sandbox\n- memory_search, memory_write: recall and store facts about the user\n- search_past_chats: look through earlier conversations\n\n[… each tool also has a full input schema; 12 definitions in all …]',
+      prov: { kind: 'estimate', text: 'Not published, so this block is an estimate. Size: 12 tools × ' + AVG + ' tokens = ' + fmt(12 * AVG) + '. ' + AVG_NOTE + ' Real chat apps may add longer usage rules for tools such as search.' } }
+  ],
+  setupLesson: 'Before you type anything, the model already holds a published system prompt of about 6,400 tokens and an estimated 4,500 tokens of tool definitions: about 22 printed pages.',
+  turns: [
+    {
+      choices: [
+        "Can you suggest a structure for a 10-minute talk to new staff about our records policy?",
+        "How should I structure a 10-minute induction talk on our records policy?"
+      ],
+      lesson: "You typed about 20 words. The model received about 11,000 tokens, roughly 22 pages. Almost all of it is instructions you never see.",
+      events: [
+        { k: 'answer', text: "For ten minutes, aim for three points and one example:\n\n- Why it matters (1 minute): one real case where a lost or kept record mattered.\n- What to keep, and for how long (4 minutes): the two or three rules new staff will meet in their first month.\n- Where things go (3 minutes): show the folder or system, not a diagram of it.\n- Who to ask (1 minute), then questions.\n\nWould you like a slide outline?" }
+      ]
+    },
+    {
+      choices: [
+        "Is there recent official guidance on how long UK universities should keep research data?",
+        "Find current UK guidance on how long universities keep research data."
+      ],
+      lesson: "The tool definitions are what let the model ask for a search. The search results are added to the context, on top of the 11,000 tokens it started with.",
+      events: [
+        { k: 'think', secs: 2, text: "Guidance changes, so I should search rather than answer from memory." },
+        { k: 'tool', kind: 'search', name: 'web_search', title: 'Searched the web',
+          args: { query: 'UK university research data retention guidance' },
+          chips: ['ukri-guidance.example', 'dcc-guides.example', 'uni-records.example'],
+          resultTokens: 1400, excerpt: true,
+          result: "[1] Research data policy: common principles\nhttps://ukri-guidance.example/data-principles\nData should be kept for as long as it has value, and long enough to check published results.\n\n[2] How long to keep research data\nhttps://dcc-guides.example/retention\nTypical periods: at least 10 years after the last access for most research; longer for some health research.\n\n[3] Records retention schedule (example university)\nhttps://uni-records.example/schedule\nResearch data underpinning publications: 10 years from publication." },
+        { k: 'answer', text: "There is no single legal period for all UK research data. The guidance I found says:\n\n- Keep data as long as it has value and long enough for others to check published results [1].\n- At least 10 years after last access is a common default, with longer periods for some health research [2].\n- University schedules often set 10 years from publication [3].\n\nYour funder's terms and your own university's schedule decide the actual period. These results are invented for this example." }
+      ]
+    }
+  ]
+},
+
+/* ------------------------------------------------------------ 3 */
+{
+  id: 'agent',
+  title: 'A real agent harness',
+  short: "Codex CLI's real instructions and tools, then one request that runs a loop of tool calls.",
+  model: 'Codex CLI (open source)',
+  window: 200000,
+  setup: codexSetup({
+    cwd: '/Users/sam/team-website',
+    mcp: [['issue tracker', 12], ['browser automation', 14], ['documentation search', 6]],
+    agents: "# Team website\n\n## Build and test\n- Install with `npm ci`. Build with `npm run build`; it must pass before you finish.\n- Check links with `npm run check-links`.\n\n## Content\n- Pages are Markdown in src/pages/. Shared parts are in src/components/.\n- British spelling. Dates as 16 November 2026.\n- Contact details live in src/data/contact.json. Pages should read them from there, not repeat them.\n\n## Do not\n- Do not edit anything in public/legal/.\n- Do not change the design tokens in src/styles/tokens.css.",
+    agentsTokens: 2000,
+    skills: [
+      ['accessibility-check', 'Check pages for headings, alt text and contrast.', '~/.codex/skills/accessibility-check/SKILL.md'],
+      ['release-notes', 'Write release notes from merged changes.', '~/.codex/skills/release-notes/SKILL.md'],
+      ['image-compress', 'Compress images in a folder without visible loss.', '~/.codex/skills/image-compress/SKILL.md'],
+      ['plain-english', 'Rewrite text at a reading age of 12 without losing meaning.', '~/.codex/skills/plain-english/SKILL.md']
+    ],
+    skillsTotal: 30
+  }),
+  setupLesson: 'Before you type anything, this agent holds about 26,000 tokens, roughly 52 printed pages: base instructions, about 50 tool definitions, an instruction file, a skill list and the environment.',
+  turns: [
+    {
+      choices: [
+        "Our office has moved to 3 New Road, Oxford OX1 1AA. Update the address on the site and check it still builds.",
+        "We have moved to 3 New Road, Oxford OX1 1AA. Change the address everywhere on the site and make sure the build passes."
+      ],
+      lesson: "One message from you, seven requests to the model. Each tool result is added before the next request, so the context grows within a single turn. This is agentic context: the agent fetches what it needs, step by step.",
+      events: [
+        { k: 'think', secs: 3, text: "AGENTS.md says contact details live in src/data/contact.json and pages should read them from there. The old address may also be typed into pages. I will set a plan, search for it, fix each place and run the build." },
+        { k: 'tool', kind: 'tool', name: 'update_plan', title: 'Updated the plan',
+          args: { plan: [
+            { step: 'Find every copy of the old address', status: 'in_progress' },
+            { step: 'Update the address', status: 'pending' },
+            { step: 'Build the site and check', status: 'pending' }] },
+          result: 'Plan updated' },
+        { k: 'tool', kind: 'search', name: 'exec_command', title: 'Ran a command: search the code',
+          args: { cmd: 'rg -n "14 Old Street"' },
+          chips: ['3 matches'],
+          result: "src/data/contact.json:3:  \"address\": \"14 Old Street, Oxford OX1 2AB\",\nsrc/pages/visit.md:12:Find us at 14 Old Street, Oxford OX1 2AB, two minutes from the station.\nsrc/components/Footer.astro:18:  <p>14 Old Street, Oxford OX1 2AB</p>" },
+        { k: 'think', secs: 2, text: "The footer and the visit page repeat the address instead of reading it from contact.json. I will look at the footer before I change it." },
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: read a file',
+          args: { cmd: "sed -n '1,60p' src/components/Footer.astro" },
+          chips: ['Footer.astro'],
+          resultTokens: 900, excerpt: true,
+          result: "---\nimport contact from '../data/contact.json';\n---\n<footer class=\"site-footer\">\n  <nav>…</nav>\n  <address>\n    <p>Team Office</p>\n    <p>14 Old Street, Oxford OX1 2AB</p>\n    <p>{contact.phone}</p>\n  </address>\n</footer>" },
+        { k: 'tool', kind: 'tool', name: 'apply_patch', title: 'Edited 3 files',
+          input: "*** Begin Patch\n*** Update File: src/data/contact.json\n@@\n-  \"address\": \"14 Old Street, Oxford OX1 2AB\",\n+  \"address\": \"3 New Road, Oxford OX1 1AA\",\n*** Update File: src/components/Footer.astro\n@@\n-    <p>14 Old Street, Oxford OX1 2AB</p>\n+    <p>{contact.address}</p>\n*** Update File: src/pages/visit.md\n@@\n-Find us at 14 Old Street, Oxford OX1 2AB, two minutes from the station.\n+Find us at 3 New Road, Oxford OX1 1AA, five minutes from the station.\n*** End Patch",
+          chips: ['contact.json', 'Footer.astro', 'visit.md'],
+          result: "Updated 3 files:\nM src/data/contact.json\nM src/components/Footer.astro\nM src/pages/visit.md" },
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: build the site',
+          args: { cmd: 'npm run build' },
+          chips: ['48 pages built', '1 warning'],
+          resultTokens: 2400, excerpt: true,
+          result: "> team-website@2.3.0 build\n> astro build\n\n…\nbuilding 48 pages\n…\nwarning: src/pages/visit.md: image visit-map.png is 2.4 MB. Consider compressing it.\n…\n48 pages built in 6.1 s\nexit code 0" },
+        { k: 'tool', kind: 'tool', name: 'update_plan', title: 'Updated the plan',
+          args: { plan: [
+            { step: 'Find every copy of the old address', status: 'completed' },
+            { step: 'Update the address', status: 'completed' },
+            { step: 'Build the site and check', status: 'completed' }] },
+          result: 'Plan updated' },
+        { k: 'answer', text: "The address now reads 3 New Road, Oxford OX1 1AA.\n\n- src/data/contact.json holds the new address.\n- The footer now reads it from contact.json instead of repeating it.\n- src/pages/visit.md has the new address and walking time. I guessed five minutes from the station; please check it.\n\nThe build passed: 48 pages, one warning about a large image on the visit page." }
+      ]
+    },
+    {
+      choices: [
+        "What was the build warning about?",
+        "Tell me more about that warning."
+      ],
+      lesson: "No tool call this time. The build output from turn 1 is still in the context, along with everything else the agent read, so the model can answer from it.",
+      events: [
+        { k: 'answer', text: "The build said that visit-map.png, the map on the visit page, is 2.4 MB and suggested compressing it. It does not stop the site from working, but it makes that page slow on a phone. There is an image-compress skill in the skill list; I can use it if you like." }
+      ]
+    }
+  ]
+},
+
+/* ------------------------------------------------------------ 4 */
+{
   id: 'web',
   title: 'Web search agent',
   short: 'The agent decides to search, reads a page and cites its sources.',
-  blurb: 'Tool definitions sit in the context. The model writes a search call, the harness runs it, and the results come back as more context.',
+  model: 'Example agent',
   window: 200000,
-  system: "You are a research assistant with access to the web. Search before you answer anything that may have changed or that you cannot know. Cite sources by number, for example [1]. Say when sources disagree or are thin. Write in British English.\n\nToday's date: 16 November 2026.",
-  tools: [
-    { name: 'web_search', description: 'Search the web. Returns up to max_results results with a title, URL and short snippet.',
-      input_schema: { type: 'object', properties: { query: { type: 'string' }, max_results: { type: 'integer', default: 5 } }, required: ['query'] } },
-    { name: 'fetch_url', description: 'Fetch a web page and return its text.',
-      input_schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } }
+  setup: [
+    workSystem("You are a research assistant with access to the web. Search before you answer anything that may have changed or that you cannot know. Cite sources by number, for example [1]. Say when sources disagree or are thin. Write in British English."),
+    workTools([
+      { name: 'web_search', description: 'Search the web. Returns up to max_results results with a title, URL and short snippet.',
+        input_schema: { type: 'object', properties: { query: { type: 'string' }, max_results: { type: 'integer', default: 5 } }, required: ['query'] } },
+      { name: 'fetch_url', description: 'Fetch a web page and return its text.',
+        input_schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } }
+    ], 14, 'files, code, memory, image viewing and others'),
+    mcpBlock([['email', 8], ['calendar', 6], ['document store', 6]]),
+    skillsBlock(WORK_SKILLS.slice(0, 3), 20),
+    envBlock('/Users/sam/Work')
   ],
   turns: [
     {
@@ -142,23 +355,29 @@ window.SCENARIOS = [
   ]
 },
 
-/* ------------------------------------------------------------ 3 */
+/* ------------------------------------------------------------ 5 */
 {
   id: 'files',
   title: 'Working with files',
   short: 'The agent looks in folders, searches and reads whole files.',
-  blurb: 'Instead of being handed a few snippets, the agent finds its own way through your files. Whatever it reads becomes context.',
+  model: 'Example agent',
   window: 200000,
-  system: "You are a workspace assistant with access to the user's files. Find files yourself: list folders and search before you read. Read only what you need. Quote file names. Do not change files unless asked. Write in British English.\n\nWorkspace root: ~/Work\nToday's date: 16 November 2026.",
-  tools: [
-    { name: 'list_dir', description: 'List the files and folders in a directory.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'grep', description: 'Search file contents for a regular expression. Returns file, line number and line.',
-      input_schema: { type: 'object', properties: { pattern: { type: 'string' }, path: { type: 'string' }, ignore_case: { type: 'boolean' } }, required: ['pattern', 'path'] } },
-    { name: 'read_file', description: 'Read a whole text file.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'search_library', description: 'Semantic search over the shared document library. Returns the top_k best-matching passages with a score.',
-      input_schema: { type: 'object', properties: { query: { type: 'string' }, top_k: { type: 'integer', default: 3 } }, required: ['query'] } }
+  setup: [
+    workSystem("You are a workspace assistant with access to the user's files. Find files yourself: list folders and search before you read. Read only what you need. Quote file names. Do not change files unless asked. Write in British English."),
+    workTools([
+      { name: 'list_dir', description: 'List the files and folders in a directory.',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+      { name: 'grep', description: 'Search file contents for a regular expression. Returns file, line number and line.',
+        input_schema: { type: 'object', properties: { pattern: { type: 'string' }, path: { type: 'string' }, ignore_case: { type: 'boolean' } }, required: ['pattern', 'path'] } },
+      { name: 'read_file', description: 'Read a whole text file.',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+      { name: 'search_library', description: 'Semantic search over the shared document library. Returns the top_k best-matching passages with a score.',
+        input_schema: { type: 'object', properties: { query: { type: 'string' }, top_k: { type: 'integer', default: 3 } }, required: ['query'] } }
+    ], 14, 'writing and editing files, web search, code, memory and others'),
+    mcpBlock([['document store', 10], ['email', 8], ['calendar', 6]]),
+    agentsBlock('/Users/sam/Work', "# Work folder\n\n- Projects each have a folder with notes/, drafts/ and a README.md.\n- Meeting notes are named YYYY-MM-DD-topic.md. Actions are marked (open) or (done).\n- Never edit anything in a final/ folder.", 1200),
+    skillsBlock(WORK_SKILLS.slice(0, 4), 20),
+    envBlock('/Users/sam/Work')
   ],
   turns: [
     {
@@ -235,19 +454,24 @@ window.SCENARIOS = [
   ]
 },
 
-/* ------------------------------------------------------------ 4 */
+/* ------------------------------------------------------------ 6 */
 {
   id: 'data',
   title: 'Data analysis',
   short: 'The agent finds a spreadsheet, writes code, and draws a chart.',
-  blurb: 'The model does not calculate in its head. It writes code, the harness runs it, and the code and its output both become context.',
+  model: 'Example agent',
   window: 200000,
-  system: "You are a data analyst with a Python sandbox and file access. Find the data yourself. Show your working by running code; never calculate in your head. Check column names and missing values before you analyse. Report numbers with units. Write in British English.",
-  tools: [
-    { name: 'find_files', description: 'Find files by name pattern under a folder.',
-      input_schema: { type: 'object', properties: { pattern: { type: 'string' }, path: { type: 'string' } }, required: ['pattern'] } },
-    { name: 'run_python', description: 'Run Python in a persistent sandbox with pandas and matplotlib. Variables stay between calls. Returns printed output.',
-      input_schema: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] } }
+  setup: [
+    workSystem("You are a data analyst with a Python sandbox and file access. Find the data yourself. Show your working by running code; never calculate in your head. Check column names and missing values before you analyse. Report numbers with units. Write in British English."),
+    workTools([
+      { name: 'find_files', description: 'Find files by name pattern under a folder.',
+        input_schema: { type: 'object', properties: { pattern: { type: 'string' }, path: { type: 'string' } }, required: ['pattern'] } },
+      { name: 'run_python', description: 'Run Python in a persistent sandbox with pandas and matplotlib. Variables stay between calls. Returns printed output.',
+        input_schema: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] } }
+    ], 14, 'reading and writing files, web search, image viewing and others'),
+    mcpBlock([['document store', 10], ['spreadsheet connector', 6]]),
+    skillsBlock(WORK_SKILLS.slice(2, 5), 20),
+    envBlock('/Users/sam/Work')
   ],
   turns: [
     {
@@ -317,32 +541,27 @@ window.SCENARIOS = [
   ]
 },
 
-/* ------------------------------------------------------------ 5 */
+/* ------------------------------------------------------------ 7 */
 {
   id: 'skills',
   title: 'Instructions, skills and sub-agents',
   short: 'Standing instructions, skills loaded on demand, and a helper with its own context.',
-  blurb: 'An instruction file is always in context. A skill costs a line until it is needed. A sub-agent works in its own small context and returns only a summary.',
+  model: 'Example agent',
   window: 200000,
-  system: "You are a writing and research assistant working in the user's project folder. Follow the instruction file. Load a skill only when the task needs it. Use a sub-agent for checks that would fill this chat with detail. Write in British English.",
-  instructions: {
-    file: 'AGENTS.md',
-    text: "# AGENTS.md: Library Board project\n\n## House style\n- British spelling. Plain sentences. Explain any acronym.\n- Board papers are one page, with the decision needed in the first line.\n\n## Files\n- Source notes: board-papers/oct/notes/\n- Finance figures: finance/q3-library-costs.xlsx (read only)\n- Drafts go in board-papers/drafts/. Never edit board-papers/final/.\n\n## Skills\n- Use the board-briefing skill for any board paper or briefing.\n- Use the figure-check skill, in a sub-agent, to check figures against a spreadsheet."
-  },
-  tools: [
-    { name: 'read_file', description: 'Read a whole text file.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'write_file', description: 'Write a text file. Creates folders if needed.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
-    { name: 'spawn_subagent', description: 'Start a sub-agent with a fresh context and one task. It returns a short summary only.',
-      input_schema: { type: 'object', properties: { name: { type: 'string' }, task: { type: 'string' } }, required: ['name', 'task'] } }
-  ],
-  skills: [
-    ['board-briefing', 'Write one-page briefings for the Library Board: structure, tone and length.'],
-    ['meeting-minutes', 'Turn rough notes into minutes with actions and owners.'],
-    ['figure-check', 'Check figures in a draft against source spreadsheets.'],
-    ['plain-english', 'Rewrite text at a reading age of 12 without losing meaning.'],
-    ['slide-outline', 'Outline a short talk as slides with one point each.']
+  setup: [
+    workSystem("You are a writing and research assistant working in the user's project folder. Follow the instruction file. Load a skill only when the task needs it. Use a sub-agent for checks that would fill this chat with detail. Write in British English."),
+    workTools([
+      { name: 'read_file', description: 'Read a whole text file.',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+      { name: 'write_file', description: 'Write a text file. Creates folders if needed.',
+        input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
+      { name: 'spawn_subagent', description: 'Start a sub-agent with a fresh context and one task. It returns a short summary only.',
+        input_schema: { type: 'object', properties: { name: { type: 'string' }, task: { type: 'string' } }, required: ['name', 'task'] } }
+    ], 14, 'searching files, web search, code, memory and others'),
+    mcpBlock([['document store', 10], ['email', 8], ['calendar', 6]]),
+    agentsBlock('/Users/maya/library-board', "# AGENTS.md: Library Board project\n\n## House style\n- British spelling. Plain sentences. Explain any acronym.\n- Board papers are one page, with the decision needed in the first line.\n\n## Files\n- Source notes: board-papers/oct/notes/\n- Finance figures: finance/q3-library-costs.xlsx (read only)\n- Drafts go in board-papers/drafts/. Never edit board-papers/final/.\n\n## Skills\n- Use the board-briefing skill for any board paper or briefing.\n- Use the figure-check skill, in a sub-agent, to check figures against a spreadsheet.", 1800),
+    skillsBlock(WORK_SKILLS, 40),
+    envBlock('/Users/maya/library-board')
   ],
   turns: [
     {
@@ -350,7 +569,7 @@ window.SCENARIOS = [
         "Draft the Library Board briefing from the October notes.",
         "Write the briefing for the Library Board using the October notes."
       ],
-      lesson: "AGENTS.md and the skill list were in context before you typed. Only one skill, board-briefing, is opened. The other four cost a line each.",
+      lesson: "AGENTS.md and the skill list were in context before you typed. Only one skill, board-briefing, is opened. The other 39 cost a line each.",
       events: [
         { k: 'think', secs: 2, text: "AGENTS.md says to use board-briefing for board papers. The skill list shows where it is. I will load it before I write anything." },
         { k: 'tool', kind: 'tool', name: 'read_file', title: 'Loaded skill: board-briefing',
@@ -377,7 +596,7 @@ window.SCENARIOS = [
         "Check the figures in the draft against the finance spreadsheet, without filling this chat with detail.",
         "Have something else check the draft's figures against finance/q3-library-costs.xlsx."
       ],
-      lesson: "A sub-agent starts with a fresh context holding only its task. It reads a large spreadsheet that never enters this chat. Only its short summary comes back. Use the tabs to compare the two contexts.",
+      lesson: "A sub-agent starts with a fresh context: its own instructions and tools, plus its task. It reads a large spreadsheet that never enters this chat. Only its short summary comes back. Use the tabs to compare the two contexts.",
       events: [
         { k: 'think', secs: 2, text: "AGENTS.md says to check figures in a sub-agent. The spreadsheet could be large, so a sub-agent keeps this chat small. I will give it the three figures and the file path." },
         { k: 'sub', name: 'figure-checker',
@@ -389,8 +608,12 @@ window.SCENARIOS = [
             "Wrote an 80-word summary and returned it"
           ],
           sub: { blocks: [
-            { type: 'system', label: 'System prompt (sub-agent)', text: "You are a sub-agent. Do the task you are given, using the tools provided. When done, reply with a short summary only: no preamble, under 80 words.\n\nBe exact about figures, and say if one cannot be found." },
-            { type: 'tools', label: 'Tool definitions (sub-agent)', text: JSON.stringify([{ name: 'read_file', description: 'Read a whole text file.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }], null, 2) },
+            { type: 'system', label: 'System prompt (sub-agent)', excerpt: true, tokens: BASE_EST,
+              text: "You are a sub-agent. Do the task you are given, using the tools provided. When done, reply with a short summary only: no preamble, under 80 words.\n\nBe exact about figures, and say if one cannot be found.\n\n[… illustrative excerpt. Sub-agents usually get much of the main agent's base prompt …]",
+              prov: { kind: 'estimate', text: 'Text: illustrative. Size: about ' + fmt(BASE_EST) + ' tokens, the same as the main base prompt.' } },
+            { type: 'tools', label: 'Tool definitions (sub-agent): 6 tools', excerpt: true, tokens: 6 * AVG,
+              text: JSON.stringify([{ name: 'read_file', description: 'Read a whole text file.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }], null, 2) + '\n\n[… 5 more tool definitions not shown …]',
+              prov: { kind: 'estimate', text: 'Size: 6 tools × ' + AVG + ' tokens = ' + fmt(6 * AVG) + '. ' + AVG_NOTE } },
             { type: 'user', label: 'Task from the main agent', text: "Check these figures from the draft against finance/q3-library-costs.xlsx: £18,400 (option B, extra staffing per year), £11,200 (option C, extra staffing per year), 64 average evening visitors. Report any that do not match. Reply in under 80 words." },
             { type: 'call', label: 'Tool call · read_file', text: JSON.stringify({ name: 'read_file', arguments: { path: 'finance/q3-library-costs.xlsx' } }, null, 2) },
             { type: 'result', label: 'Tool result · read_file', excerpt: true, tokens: 5200,
@@ -418,49 +641,46 @@ window.SCENARIOS = [
   ]
 },
 
-/* ------------------------------------------------------------ 6 */
+/* ------------------------------------------------------------ 8 */
 {
   id: 'long',
-  title: 'Long session',
-  short: 'The window fills up. The harness compacts old turns into a summary.',
-  blurb: 'A context window is finite. When it nears the limit, the harness asks the model to summarise older turns and replaces them. Detail is lost.',
+  title: 'Long task and compaction',
+  short: 'The window fills up during a long task. The harness has the model summarise, then starts a new, smaller context.',
+  model: 'Codex CLI set-up',
   window: 200000,
-  system: "You are an editorial assistant working in the user's project folder. Follow the instruction file. Read before you rewrite. Write in British English.",
-  instructions: {
-    file: 'AGENTS.md',
-    text: "# AGENTS.md: Intranet clean-up\n\n- Source: intranet-export/ (60 pages, HTML). Style guide: style/style-guide.txt\n- Rewrites go in rewrites/. Never edit intranet-export/.\n- British spelling, plain sentences, one idea per paragraph."
-  },
-  tools: [
-    { name: 'list_dir', description: 'List the files and folders in a directory.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'read_file', description: 'Read a whole text file.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-    { name: 'read_files', description: 'Read several text files at once.',
-      input_schema: { type: 'object', properties: { paths: { type: 'array', items: { type: 'string' } } }, required: ['paths'] } },
-    { name: 'write_file', description: 'Write a text file.',
-      input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } }
-  ],
-  toolsNote: "Shown: 4 of 14 tool definitions. The rest are omitted here.",
-  toolsTokens: 6200,
+  compactAt: 0.9,
+  setup: codexSetup({
+    cwd: '/Users/sam/intranet-cleanup',
+    mcp: [['issue tracker', 12], ['browser automation', 14], ['documentation search', 6]],
+    agents: "# Intranet clean-up\n\n- Source: intranet-export/ (60 pages, HTML). Style guide: style/style-guide.txt\n- Rewrites go in rewrites/. Never edit intranet-export/.\n- British spelling, plain sentences, one idea per paragraph.\n- Every page names an owner and a review date.",
+    agentsTokens: 2000,
+    skills: [
+      ['plain-english', 'Rewrite text at a reading age of 12 without losing meaning.', '~/.codex/skills/plain-english/SKILL.md'],
+      ['page-owner', 'Find the owner of an intranet page from the staff list.', '~/.codex/skills/page-owner/SKILL.md'],
+      ['accessibility-check', 'Check pages for headings, alt text and contrast.', '~/.codex/skills/accessibility-check/SKILL.md']
+    ],
+    skillsTotal: 30
+  }),
+  setupLesson: 'The same set-up as "A real agent harness": about 26,000 tokens before the task starts, roughly 52 pages. The window holds 200,000 tokens, about 400 pages.',
   turns: [
     {
       choices: [
         "Audit the exported intranet pages in intranet-export/ and list the ones that need rewriting.",
         "Go through all 60 intranet pages and tell me which need rewriting."
       ],
-      lesson: "Reading 60 pages at once puts about 58,000 tokens into the context in one step. Tool results and files are what fill a window.",
+      lesson: "Reading 60 pages puts about 55,000 tokens into the context in one step, more than 100 printed pages. Tool results are what fill a window.",
       events: [
-        { k: 'tool', kind: 'tool', name: 'list_dir', title: 'Looked in a folder',
-          args: { path: 'intranet-export' }, chips: ['60 pages'],
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: list the pages',
+          args: { cmd: 'ls intranet-export' }, chips: ['60 pages'],
           resultTokens: 700, excerpt: true,
           result: "page-01.html  page-02.html  page-03.html  page-04.html\npage-05.html  page-06.html  page-07.html  page-08.html\n...\npage-57.html  page-58.html  page-59.html  page-60.html" },
-        { k: 'tool', kind: 'search', name: 'read_files', title: 'Read 60 files',
-          args: { paths: ['intranet-export/page-01.html', 'intranet-export/page-02.html', '... 58 more paths'] },
+        { k: 'tool', kind: 'search', name: 'exec_command', title: 'Ran a command: read 60 pages',
+          args: { cmd: 'for f in intranet-export/*.html; do echo "=== $f"; cat "$f"; done' },
           chips: ['page-01.html', 'page-02.html', '58 more'],
-          resultTokens: 58000, excerpt: true,
-          result: "=== page-01.html ===\n<h1>Booking a meeting room</h1>\n<p>Rooms are booked through the Facilities Portal (see the 2019 guide) ...</p>\n\n=== page-02.html ===\n<h1>Expenses</h1>\n<p>Claims must be submitted on form EX-4 within 30 days ...</p>\n\n... 58 more pages" },
+          resultTokens: 55000, excerpt: true,
+          result: "=== intranet-export/page-01.html\n<h1>Booking a meeting room</h1>\n<p>Rooms are booked through the Facilities Portal (see the 2019 guide) ...</p>\n\n=== intranet-export/page-04.html\n<h1>Expenses</h1>\n<p>Claims must be submitted on form EX-4 within 30 days of the expense being incurred ...</p>\n\n=== intranet-export/page-31.html\n<h1>Claiming travel costs</h1>\n<p>Travel claims are due by the end of the following month ...</p>\n\n... 57 more pages" },
         { k: 'answer',
-          text: "17 of the 60 pages need rewriting:\n\n- 9 are out of date, for example page 01 refers to a 2019 booking guide.\n- 5 contradict another page, such as pages 02 and 31 on expense deadlines.\n- 3 have no named owner and no review date.\n\nShall I rank them against the style guide?" }
+          text: "17 of the 60 pages need rewriting:\n\n- 9 are out of date, for example page 01 refers to a 2019 booking guide.\n- 5 contradict another page, such as pages 04 and 31 on expense deadlines.\n- 3 have no named owner and no review date.\n\nShall I rank them against the style guide?" }
       ]
     },
     {
@@ -468,11 +688,11 @@ window.SCENARIOS = [
         "Compare those 17 with the style guide and rank them by how far they are from it.",
         "Rank the 17 pages by how far they are from our style guide."
       ],
-      lesson: "The 60 pages are still in the context. The style guide adds another 41,000 tokens on top. Nothing is dropped yet.",
+      lesson: "The 60 pages are still in the context. The style guide adds another 38,000 tokens on top. Nothing is dropped yet.",
       events: [
-        { k: 'tool', kind: 'tool', name: 'read_file', title: 'Read a file',
-          args: { path: 'style/style-guide.txt' }, chips: ['style-guide.txt'],
-          resultTokens: 41000, excerpt: true,
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: read the style guide',
+          args: { cmd: 'cat style/style-guide.txt' }, chips: ['style-guide.txt'],
+          resultTokens: 38000, excerpt: true,
           result: "Intranet style guide, version 4\n\n1. Write for someone who has 30 seconds.\n2. Put the action first: 'Book a room', not 'Room booking procedures'.\n3. One idea per paragraph. Sentences under 25 words.\n4. Every page names an owner and a review date.\n...\n(see the full text for 38 more rules and examples)" },
         { k: 'answer',
           text: "Ranked from furthest to closest to the style guide:\n\npage-11, 04, 22, 31, 08, 17, 39, 52, 05, 14, 26, 33, 40, 45, 48, 55, 59.\n\nThe worst three: page-11 (leave policy) has 1,284 words, no owner and passive sentences throughout. Page-04 (expenses) contradicts page-31 and has sentences over 40 words. Page-22 (IT help) is out of date and has no review date." }
@@ -483,33 +703,40 @@ window.SCENARIOS = [
         "Write a rewrite brief for each of the eight worst pages.",
         "For the eight worst pages, write a brief saying what to change."
       ],
-      lesson: "Another 52,000 tokens of earlier page versions. The context is now above 80% of the window, close to the limit.",
+      lesson: "Another 52,000 tokens of earlier page versions. The context is now about 172,000 tokens, roughly 340 pages: close to the limit.",
       events: [
-        { k: 'tool', kind: 'search', name: 'read_files', title: 'Read 8 files',
-          args: { paths: ['intranet-export/history/page-11-v1.html', 'intranet-export/history/page-11-v2.html', '... 14 more paths'] },
+        { k: 'tool', kind: 'search', name: 'exec_command', title: 'Ran a command: read 16 page versions',
+          args: { cmd: 'cat intranet-export/history/page-{11,04,22,31,08,17,39,52}-v*.html' },
           chips: ['page-11 history', 'page-04 history', '6 more'],
           resultTokens: 52000, excerpt: true,
-          result: "=== history/page-11-v1.html ===\n<h1>Leave</h1> ...\n\n=== history/page-11-v2.html ===\n<h1>Annual leave policy</h1> ...\n\n... 14 more files" },
+          result: "=== history/page-11-v1.html\n<h1>Leave</h1> ...\n\n=== history/page-11-v2.html\n<h1>Annual leave policy</h1> ...\n\n... 14 more files" },
         { k: 'answer',
           text: "Here are the eight briefs, each with the problem, the change and the owner to ask:\n\n1. page-11: split into annual leave, sick leave and parental leave. Ask HR for an owner.\n2. page-04: resolve with page-31, then rewrite in short sentences. Ask Finance.\n3. page-22: update to the 2026 help desk process.\n\nThe remaining five are in the same format." }
       ]
     },
     {
       choices: [
-        "Start the rewrite with the first page in the ranking.",
-        "Begin rewriting page 11."
+        "Start the rewrite with page-11, using the current HR leave policy.",
+        "Begin rewriting page 11. Check it against the HR leave policy."
       ],
-      lesson: "The context passes the limit that triggers compaction. The model is asked to write a summary, and the harness swaps the old turns for it. Use the Before and After tabs.",
+      lesson: "Two more files push the next request past the limit. The harness stops, has the model write a summary, and builds a new context. Follow the next steps one by one.",
       events: [
-        { k: 'compact', note: 'Context passed 80% of the window.',
-          text:
-"Summary of the session so far\n\nTask: audit the 60 intranet pages in intranet-export/, rank those needing rewrite against style/style-guide.txt, and rewrite them into rewrites/.\n\nFindings: 17 of 60 pages need rewriting (9 out of date, 5 contradicting another page, 3 with no owner or review date).\nRanking, worst first: page-11, 04, 22, 31, 08, 17, 39, 52, 05, 14, 26, 33, 40, 45, 48, 55, 59.\n\nKey rules from the style guide: put the action first; sentences under 25 words; one idea per paragraph; every page names an owner and a review date.\n\nBriefs agreed: page-11 split into three pages (annual leave, sick leave, parental leave); page-04 to be reconciled with page-31 before rewriting.\n\nNext step: rewrite page-11.",
-          tokens: 2400 },
-        { k: 'think', secs: 2, text: "The summary says page-11 comes first and that the style guide wants the action first. I do not have the page text any more, so I will read it again." },
-        { k: 'tool', kind: 'tool', name: 'read_file', title: 'Read a file',
-          args: { path: 'intranet-export/page-11.html' }, chips: ['page-11.html'],
-          resultTokens: 3100, excerpt: true,
-          result: "<h1>Leave</h1>\n<p>Employees are entitled to leave in accordance with the provisions of the policy, which should be read in conjunction with ...</p>\n..." },
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: read 2 files',
+          args: { cmd: 'cat intranet-export/page-11.html policies/hr-leave-policy.txt' },
+          chips: ['page-11.html', 'hr-leave-policy.txt'],
+          resultTokens: 9900, excerpt: true,
+          result: "=== intranet-export/page-11.html\n<h1>Leave</h1>\n<p>Employees are entitled to leave in accordance with the provisions of the policy, which should be read in conjunction with ...</p>\n...\n\n=== policies/hr-leave-policy.txt\nAnnual leave: 27 days plus bank holidays. Book through the HR system at least two weeks ahead.\nSick leave: tell your manager by 10am on the first day ...\n..." },
+        { k: 'trigger' },
+        { k: 'summarise', summaryTokens: 2300,
+          summary: "Task: audit the 60 intranet pages in intranet-export/, rank the ones needing a rewrite against style/style-guide.txt, and rewrite them into rewrites/.\n\nProgress:\n- 17 of 60 pages need rewriting (9 out of date, 5 contradicting another page, 3 with no owner or review date).\n- Ranking, worst first: page-11, 04, 22, 31, 08, 17, 39, 52, 05, 14, 26, 33, 40, 45, 48, 55, 59.\n- Briefs agreed: page-11 split into annual leave, sick leave and parental leave; page-04 to be reconciled with page-31 before rewriting.\n\nKey rules from the style guide: action first; sentences under 25 words; one idea per paragraph; every page names an owner and a review date.\n\nNext step: rewrite page-11 using policies/hr-leave-policy.txt (27 days plus bank holidays; book two weeks ahead)." },
+        { k: 'compact',
+          reattach: [
+            { label: 'Re-attached file: page-11.html', tokens: 3100, text: "<h1>Leave</h1>\n<p>Employees are entitled to leave in accordance with the provisions of the policy, which should be read in conjunction with ...</p>\n..." },
+            { label: 'Re-attached file: hr-leave-policy.txt', tokens: 6800, text: "Annual leave: 27 days plus bank holidays. Book through the HR system at least two weeks ahead.\nSick leave: tell your manager by 10am on the first day ...\n..." }
+          ],
+          plan: "Plan\n- [completed] Audit the 60 pages\n- [completed] Rank the 17 against the style guide\n- [completed] Write briefs for the worst eight\n- [in_progress] Rewrite page-11 as three pages\n- [pending] Rewrite page-04 with page-31",
+          lost: "the text of the 60 pages (55,000 tokens), the style guide (38,000), the page histories (52,000), and every earlier command, result and reply. The summary keeps decisions, not wording." },
+        { k: 'think', secs: 2, text: "The summary says page-11 comes first and that the style guide wants the action first. The page and the leave policy are attached again, so I can start." },
         { k: 'answer',
           text: "Here is the opening of the rewrite for annual leave. The sick leave and parental leave pages will follow in the same format.",
           quote: "Annual leave: how to book it\n\nYou get 27 days a year plus bank holidays. To book leave, ask your manager in the HR system at least two weeks ahead.\n\nOwner: HR. Next review: 1 June 2027." }
@@ -517,20 +744,24 @@ window.SCENARIOS = [
     },
     {
       choices: [
-        "What was the exact word count of page 11 before we started?",
-        "How many words was the original page 11?"
+        "What exactly do pages 04 and 31 say about the expenses deadline?",
+        "Quote the deadline wording from page 04 and page 31."
       ],
-      lesson: "The cost of compaction. Exact details that did not make it into the summary are gone. The agent has to read the file again, or admit it does not know.",
+      lesson: "The cost of compaction. The summary says the two pages contradict each other, but their wording was dropped. The agent has to read them again.",
       events: [
-        { k: 'think', secs: 2, text: "My summary does not give the word count. A figure I made up would be worse than no figure, so I will check the file." },
-        { k: 'tool', kind: 'tool', name: 'read_file', title: 'Read a file',
-          args: { path: 'intranet-export/page-11.html' }, chips: ['page-11.html'],
-          resultTokens: 3100, excerpt: true,
-          result: "<h1>Leave</h1>\n<p>Employees are entitled to leave in accordance with the provisions of the policy, which should be read in conjunction with ...</p>\n..." },
+        { k: 'think', secs: 2, text: "My summary says page-04 and page-31 disagree, but not what they say. The page texts were dropped when the context was compacted, so I must read them again rather than guess." },
+        { k: 'tool', kind: 'tool', name: 'exec_command', title: 'Ran a command: read 2 pages again',
+          args: { cmd: 'cat intranet-export/page-04.html intranet-export/page-31.html' },
+          chips: ['page-04.html', 'page-31.html'],
+          resultTokens: 2800, excerpt: true,
+          result: "=== intranet-export/page-04.html\n<h1>Expenses</h1>\n<p>Claims must be submitted on form EX-4 within 30 days of the expense being incurred ...</p>\n\n=== intranet-export/page-31.html\n<h1>Claiming travel costs</h1>\n<p>Travel claims are due by the end of the following month ...</p>" },
         { k: 'answer',
-          text: "The original page 11 has 1,284 words. I had to read the file again, because my summary of the earlier work said only that the page was too long. Details that were not in the summary are not available to me any more. Anything exact that you will need later is worth asking me to keep in a file." }
+          text: "Page 04 says claims are due within 30 days of the expense. Page 31 says travel claims are due by the end of the following month, which can be up to 60 days. I had to read both pages again: after compaction my summary recorded only that they disagree." },
+        { k: 'note', title: 'Other ways to make room',
+          text: "Clearing old tool results: some harnesses replace old tool output with a short placeholder and keep the rest of the conversation.\nStarting a fresh sub-agent: the work goes to a helper with a clean context, and only its summary comes back (see Instructions, skills and sub-agents)." }
       ]
     }
   ]
 }
 ];
+})();

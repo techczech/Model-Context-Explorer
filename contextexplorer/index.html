@@ -7,7 +7,7 @@
 <meta name="description" content="Scripted agent conversations that show exactly what a language model receives on every turn.">
 <meta name="color-scheme" content="light dark">
 <script>
-(function(){var d=document.documentElement;d.className='js';try{var t=localStorage.getItem('ce-theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);}catch(e){}})();
+(function(){var d=document.documentElement,q=new URLSearchParams(location.search),t=null;d.className='js'+(q.get('embed')?' embed-mode':'');try{t=localStorage.getItem('ce-theme');}catch(e){}if(q.get('theme'))t=q.get('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);})();
 </script>
 <link rel="stylesheet" href="app.css">
 </head>
@@ -50,6 +50,9 @@
     <symbol id="i-end" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
     <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
   </defs>
 </svg>
@@ -81,7 +84,8 @@
         <ul class="hero-points">
           <li>A language model has no memory between requests.</li>
           <li>On every turn, the software around it, called the harness, sends everything again: the instructions, the tools, the chat so far and anything it has read.</li>
-          <li>The window has a fixed size, so the pile can fill up.</li>
+          <li>It is not a one-line instruction. A modern agent starts with 15,000 to 40,000 tokens before you type: 30 to 80 printed pages, almost a little book.</li>
+          <li>The window has a fixed size, about 400 pages for 200,000 tokens, so the pile can fill up.</li>
           <li>Step through a scripted example, then open <b>Show context</b> to see each part, its size and what is new.</li>
         </ul>
         <div class="hero-cta">
@@ -90,7 +94,7 @@
         </div>
       </div>
       <figure class="stack" aria-label="Illustration: one request to the model, built from stacked parts inside a fixed context window">
-        <div class="stack-top"><span>Context window</span><span>200,000 tokens</span></div>
+        <div class="stack-top"><span>Context window</span><span>200,000 tokens · about 400 pages</span></div>
         <div class="stack-win" aria-hidden="true">
           <div class="layer" style="--c:var(--t-system);--h:1;--i:0"><svg class="ic"><use href="#i-shield"/></svg>System prompt</div>
           <div class="layer" style="--c:var(--t-tools);--h:2;--i:1"><svg class="ic"><use href="#i-wrench"/></svg>Tool definitions</div>
@@ -107,7 +111,7 @@
   <section class="sec" id="scenarios" aria-labelledby="scTitle">
     <div class="sec-head">
       <h2 id="scTitle">Scenarios</h2>
-      <p>Six scripted examples of agents doing everyday work. Pick one, then step through it at your own pace.</p>
+      <p>Eight scripted examples. The first shows the idea in miniature; the next two use real, published instructions and tools; the rest show agents doing everyday work. Pick one, then step through it at your own pace.</p>
     </div>
     <div class="picker" id="picker" role="list"></div>
 
@@ -125,8 +129,10 @@
           <div class="cw-top">
             <span class="ttl-ic" id="ttlIc"></span>
             <span class="ttl" id="ttl"></span>
-            <span class="pill" id="model">Example model</span>
+            <span class="pill" id="model">Example agent</span>
             <span class="grow"></span>
+            <a class="pill full-link" id="fullLink" href="https://contextexplorer.semanticmachines.fyi/" target="_blank" rel="noopener"><span>Context Explorer</span><svg class="ic" aria-hidden="true"><use href="#i-external"/></svg></a>
+            <button type="button" class="btn sm ghost" id="embedBtn" aria-haspopup="dialog"><svg class="ic" aria-hidden="true"><use href="#i-code"/></svg><span>Embed</span></button>
             <button type="button" class="btn sm" id="ctxTop"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg><span>Show context</span></button>
           </div>
           <div class="cw-thread" id="thread" role="log" aria-label="Conversation" tabindex="0"></div>
@@ -163,7 +169,20 @@
         </aside>
       </div>
       <div class="backdrop" id="backdrop" hidden></div>
-      <p class="note">Token counts are approximate. Where a file or page is long, the text shown is an excerpt and the count is for the full block. Real harnesses add more tool definitions and formatting than shown here.</p>
+      <dialog class="dlg" id="embedDlg" aria-labelledby="embedTitle">
+        <h2 id="embedTitle">Embed this scenario</h2>
+        <p>Paste this into a web page or slide tool that accepts iframes. It shows only this chat, its step bar and the context panel.</p>
+        <div class="dlg-opts">
+          <label><input type="checkbox" id="eStep" checked><span>Start at the current step (<span id="eStepN"></span>)</span></label>
+          <label><input type="checkbox" id="eCtx"><span>Open the context panel</span></label>
+          <label>Theme <select id="eTheme"><option value="">Follow the viewer's system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        </div>
+        <label class="dlg-l" for="eCode">Iframe code</label>
+        <textarea id="eCode" rows="4" readonly spellcheck="false"></textarea>
+        <p class="dlg-l">Link: <a id="eLink" href="#" target="_blank" rel="noopener"></a></p>
+        <div class="dlg-b"><button type="button" class="btn" id="eCopy">Copy code</button><button type="button" class="btn ghost" id="eClose">Close</button><span id="eCopied" aria-live="polite"></span></div>
+      </dialog>
+      <p class="note">Token counts are approximate: the real sources were counted with OpenAI's cl100k tokenizer, which is not the native tokenizer of every model. Where a block is long, the text shown is an excerpt and the count is for the full block. Each block says whether it is real, a real format with illustrative content, an estimate or illustrative.</p>
     </div>
   </section>
 
@@ -177,6 +196,9 @@
       <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg></span><div><b>The bar</b><p>Shows how much of the window is in use. Zoom it to see the parts more clearly when little is used.</p></div></li>
       <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-sparkle"/></svg></span><div><b>The New tag</b><p>Marks blocks that were not in the previous request. Everything else was sent again.</p></div></li>
       <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></span><div><b>Follows the step</b><p>While the panel is open, Back and Next update it, so you can watch the context grow.</p></div></li>
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span><div><b>Tokens and pages</b><p>A token is a word or part of a word. As a rule of thumb, 500 tokens fill one printed page, about 375 words. A 200,000-token window holds about 400 pages. Some models offer 1,000,000 tokens, about 2,000 pages.</p></div></li>
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span><div><b>Real or estimated</b><p><b class="pb k-real">Real</b> text is quoted from a published source. <b class="pb k-mixed">Real format</b> uses a real layout with invented content. <b class="pb k-estimate">Estimate</b> gives a size worked out from the sources. <b class="pb k-illustrative">Illustrative</b> is made up to show the idea.</p></div></li>
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-compress"/></svg></span><div><b>Compaction</b><p>When the context nears the limit, the harness has the model summarise the work so far, then starts a new, much smaller context from the set-up, the summary and a few recent items.</p></div></li>
     </ol>
 
     <h3 class="blocks-h">The blocks</h3>
@@ -184,6 +206,7 @@
       <li style="--c:var(--t-system)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><div><b>System prompt</b><p>The standing rules the harness gives the model before anything else.</p></div></li>
       <li style="--c:var(--t-instructions)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></span><div><b>Instruction file</b><p>Project notes the agent reads at the start of every session.</p></div></li>
       <li style="--c:var(--t-tools)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg></span><div><b>Tool definitions</b><p>The name and inputs of every tool the model may ask the harness to run.</p></div></li>
+      <li style="--c:var(--t-env)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-terminal"/></svg></span><div><b>Environment</b><p>Where the agent is working: folder, shell, date and time zone.</p></div></li>
       <li style="--c:var(--t-skills)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span><div><b>Skill list</b><p>Only the names and one-line descriptions of the skills available.</p></div></li>
       <li style="--c:var(--t-history)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span><div><b>Conversation history</b><p>Earlier messages and replies, resent in full each turn.</p></div></li>
       <li style="--c:var(--t-user)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span><div><b>User message</b><p>What you have just typed.</p></div></li>
@@ -193,6 +216,7 @@
       <li style="--c:var(--t-skill)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-box"/></svg></span><div><b>Loaded skill</b><p>The full text of a skill, read in only when it is needed.</p></div></li>
       <li style="--c:var(--t-subagent)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg></span><div><b>Sub-agent summary</b><p>A helper works in its own context and returns only a summary.</p></div></li>
       <li style="--c:var(--t-compaction)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-compress"/></svg></span><div><b>Compaction summary</b><p>Older turns, shortened by the model to make room.</p></div></li>
+      <li style="--c:var(--t-plan)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span><div><b>Task plan</b><p>The current list of steps, carried into a compacted context.</p></div></li>
     </ul>
   </section>
 
@@ -202,8 +226,14 @@
     </div>
     <div class="about">
       <p>Context Explorer is one of the <a href="https://explainers.semanticmachines.fyi/">Semantic Machines explainers</a>, made by Dominik Lukeš.</p>
-      <p>All conversations are scripted. No model is running, and the files, websites and figures are invented. Token counts are rough estimates.</p>
-      <p>Real harnesses differ in detail, but the pattern is the same: the model sees one long piece of text, rebuilt on every turn.</p>
+      <p>All conversations are scripted. No model is running, and the files, websites and figures in the chats are invented.</p>
+      <p>The system prompts and tool definitions marked Real are quoted from published sources, shortened with a note of what was left out:</p>
+      <ul class="srcs-list">
+        <li>Anthropic, <a href="https://platform.claude.com/docs/en/release-notes/system-prompts/claude-fable-5-2">Claude Fable 5.2 system prompt</a> (published 9 November 2026). It covers behaviour only; Anthropic does not publish the app's tool definitions.</li>
+        <li>OpenAI, <a href="https://github.com/openai/codex/tree/c0d47262f33fdb866e2012baad52cf6584e37c03">Codex CLI</a> at commit c0d4726: base instructions, tool specs, skills prompt, environment format, compaction prompt and compaction limit. Apache License 2.0.</li>
+        <li>Google, <a href="https://github.com/google-gemini/gemini-cli/tree/4fa64e71b9b4e1bb65a86cc2863574f561b82340">Gemini CLI</a> at commit 4fa64e7: tool schemas, used only to work out the average size of a tool definition. Apache License 2.0.</li>
+      </ul>
+      <p>Sizes marked Estimate use an average of about 375 tokens per tool definition, taken from 22 real definitions in those two open-source tools. Real harnesses differ in detail, but the pattern is the same: the model sees one long piece of text, rebuilt on every turn.</p>
     </div>
   </section>
 </main>
@@ -211,6 +241,7 @@
 <footer class="site-foot">
   <p>Dominik Lukeš · <a href="https://explainers.semanticmachines.fyi/">Semantic Machines</a>. More explainers at <a href="https://explainers.semanticmachines.fyi/">explainers.semanticmachines.fyi</a>.</p>
 </footer>
+<script src="real-sources.js"></script>
 <script src="scenarios.js"></script>
 <script src="app.js"></script>
 </body>
