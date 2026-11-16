@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Explorer</title>
+<meta name="description" content="Scripted agent conversations that show exactly what a language model receives on every turn.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main id="top">
+  <header class="intro">
+    <p class="meta"><a href="https://explainers.semanticmachines.fyi/">Semantic Machines explainers</a> · Dominik Lukeš</p>
+    <h1>Context Explorer</h1>
+    <p class="lede">A language model has no memory. On every turn, the software around it, called the harness, sends everything again: the instructions, the tool definitions, the conversation so far and anything the model has read. These are scripted examples of agents doing everyday work. After each reply, press <b>Show context</b> to see exactly what the model received, how much room each part takes and what is new. Pick an example to start.</p>
+    <div class="picker" id="picker" role="list"></div>
+  </header>
+
+  <section class="app" id="app" aria-label="Example conversation">
+    <div class="cw" id="cw">
+      <aside class="cw-side" aria-label="Examples">
+        <div class="cw-rl">Recent</div>
+        <div class="list" id="recent"></div>
+      </aside>
+      <div class="cw-main">
+        <div class="cw-top">
+          <span class="ttl" id="ttl"></span>
+          <span class="pill" id="model">Example model</span>
+          <span class="grow"></span>
+          <button type="button" class="btn" id="ctxTop">Show context</button>
+          <button type="button" class="btn ghost" id="replay">Replay</button>
+        </div>
+        <div class="cw-thread" id="thread" role="log" aria-live="polite" aria-label="Conversation" tabindex="0"></div>
+        <div class="cw-foot" id="foot"></div>
+      </div>
+      <aside class="ctx" id="ctx" role="dialog" aria-labelledby="ctxTitle" hidden>
+        <div class="ctx-head">
+          <div><h2 id="ctxTitle">What the model received</h2><p class="ctx-sub" id="ctxSub"></p></div>
+          <button type="button" class="x" id="ctxClose" aria-label="Close context view">&times;</button>
+        </div>
+        <div class="ctx-body" id="ctxBody"></div>
+      </aside>
+    </div>
+    <div class="backdrop" id="backdrop" hidden></div>
+    <p class="note">Token counts are approximate. Where a file or page is long, the text shown is an excerpt and the count is for the full block. Real harnesses add more tool definitions and formatting than shown here.</p>
+  </section>
+
+  <footer>
+    <p>Dominik Lukeš · <a href="https://explainers.semanticmachines.fyi/">Semantic Machines</a>. All conversations are scripted examples. No model is running, and the files, websites and figures are invented. More explainers at <a href="https://explainers.semanticmachines.fyi/">explainers.semanticmachines.fyi</a>.</p>
+  </footer>
+</main>
+<script src="scenarios.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 tests/.generated/
+
+# Context Explorer local checks
+.checks/
