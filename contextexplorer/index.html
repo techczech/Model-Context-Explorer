@@ -3,53 +3,214 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Context Explorer</title>
+<title>Context Explorer: what a language model receives on every turn</title>
 <meta name="description" content="Scripted agent conversations that show exactly what a language model receives on every turn.">
 <meta name="color-scheme" content="light dark">
+<script>
+(function(){var d=document.documentElement;d.className='js';try{var t=localStorage.getItem('ce-theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);}catch(e){}})();
+</script>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main id="top">
-  <header class="intro">
-    <p class="meta"><a href="https://explainers.semanticmachines.fyi/">Semantic Machines explainers</a> · Dominik Lukeš</p>
-    <h1>Context Explorer</h1>
-    <p class="lede">A language model has no memory. On every turn, the software around it, called the harness, sends everything again: the instructions, the tool definitions, the conversation so far and anything the model has read. These are scripted examples of agents doing everyday work. After each reply, press <b>Show context</b> to see exactly what the model received, how much room each part takes and what is new. Pick an example to start.</p>
-    <div class="picker" id="picker" role="list"></div>
-  </header>
 
-  <section class="app" id="app" aria-label="Example conversation">
-    <div class="cw" id="cw">
-      <aside class="cw-side" aria-label="Examples">
-        <div class="cw-rl">Recent</div>
-        <div class="list" id="recent"></div>
-      </aside>
-      <div class="cw-main">
-        <div class="cw-top">
-          <span class="ttl" id="ttl"></span>
-          <span class="pill" id="model">Example model</span>
-          <span class="grow"></span>
-          <button type="button" class="btn" id="ctxTop">Show context</button>
-          <button type="button" class="btn ghost" id="replay">Replay</button>
+<!-- Icon sprite: Lucide-style line icons drawn inline, no external requests -->
+<svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+    <symbol id="i-compress" viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></symbol>
+    <symbol id="i-quote" viewBox="0 0 24 24"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><path d="M8 16h.01"/><path d="M16 16h.01"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-think" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect width="4" height="16" x="6" y="4"/><rect width="4" height="16" x="14" y="4"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-end" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+  </defs>
+</svg>
+
+<a class="skip" href="#scenarios">Skip to the examples</a>
+
+<header class="site" id="siteHeader">
+  <div class="site-in">
+    <a class="brand" href="#top" aria-label="Context Explorer, back to the top">
+      <span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg></span>
+      <span class="brand-text"><b>Context Explorer</b><small>What a language model receives on every turn</small></span>
+    </a>
+    <nav class="nav" id="siteNav" aria-label="Sections">
+      <a href="#scenarios" data-sec="scenarios">Scenarios</a>
+      <a href="#how" data-sec="how">How it works</a>
+      <a href="#about" data-sec="about">About</a>
+    </nav>
+    <button type="button" class="iconbtn" id="themeBtn" aria-label="Colour theme: follows the system"><svg class="ic" aria-hidden="true"><use href="#i-monitor"/></svg></button>
+    <button type="button" class="iconbtn menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="siteNav"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero" aria-labelledby="heroTitle">
+    <div class="hero-in">
+      <div class="hero-copy">
+        <p class="eyebrow"><a href="https://explainers.semanticmachines.fyi/">Semantic Machines explainers</a> · Dominik Lukeš</p>
+        <h1 id="heroTitle">See what the model actually receives</h1>
+        <ul class="hero-points">
+          <li>A language model has no memory between requests.</li>
+          <li>On every turn, the software around it, called the harness, sends everything again: the instructions, the tools, the chat so far and anything it has read.</li>
+          <li>The window has a fixed size, so the pile can fill up.</li>
+          <li>Step through a scripted example, then open <b>Show context</b> to see each part, its size and what is new.</li>
+        </ul>
+        <div class="hero-cta">
+          <a class="btn lg" href="#scenarios">Try an example <svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="btn lg ghost" href="#how">How to read it</a>
         </div>
-        <div class="cw-thread" id="thread" role="log" aria-live="polite" aria-label="Conversation" tabindex="0"></div>
-        <div class="cw-foot" id="foot"></div>
       </div>
-      <aside class="ctx" id="ctx" role="dialog" aria-labelledby="ctxTitle" hidden>
-        <div class="ctx-head">
-          <div><h2 id="ctxTitle">What the model received</h2><p class="ctx-sub" id="ctxSub"></p></div>
-          <button type="button" class="x" id="ctxClose" aria-label="Close context view">&times;</button>
+      <figure class="stack" aria-label="Illustration: one request to the model, built from stacked parts inside a fixed context window">
+        <div class="stack-top"><span>Context window</span><span>200,000 tokens</span></div>
+        <div class="stack-win" aria-hidden="true">
+          <div class="layer" style="--c:var(--t-system);--h:1;--i:0"><svg class="ic"><use href="#i-shield"/></svg>System prompt</div>
+          <div class="layer" style="--c:var(--t-tools);--h:2;--i:1"><svg class="ic"><use href="#i-wrench"/></svg>Tool definitions</div>
+          <div class="layer" style="--c:var(--t-history);--h:3;--i:2"><svg class="ic"><use href="#i-clock"/></svg>Earlier messages</div>
+          <div class="layer" style="--c:var(--t-result);--h:3.5;--i:3"><svg class="ic"><use href="#i-check"/></svg>Tool result</div>
+          <div class="layer" style="--c:var(--t-user);--h:1;--i:4"><svg class="ic"><use href="#i-user"/></svg>Your new message</div>
+          <div class="layer room" style="--h:2.5;--i:5">Room left</div>
         </div>
-        <div class="ctx-body" id="ctxBody"></div>
-      </aside>
+        <figcaption>One request. All of this is sent again on the next turn, plus whatever was added.</figcaption>
+      </figure>
     </div>
-    <div class="backdrop" id="backdrop" hidden></div>
-    <p class="note">Token counts are approximate. Where a file or page is long, the text shown is an excerpt and the count is for the full block. Real harnesses add more tool definitions and formatting than shown here.</p>
   </section>
 
-  <footer>
-    <p>Dominik Lukeš · <a href="https://explainers.semanticmachines.fyi/">Semantic Machines</a>. All conversations are scripted examples. No model is running, and the files, websites and figures are invented. More explainers at <a href="https://explainers.semanticmachines.fyi/">explainers.semanticmachines.fyi</a>.</p>
-  </footer>
+  <section class="sec" id="scenarios" aria-labelledby="scTitle">
+    <div class="sec-head">
+      <h2 id="scTitle">Scenarios</h2>
+      <p>Six scripted examples of agents doing everyday work. Pick one, then step through it at your own pace.</p>
+    </div>
+    <div class="picker" id="picker" role="list"></div>
+
+    <div class="strip-wrap">
+      <nav class="strip" id="strip" aria-label="Choose a scenario"></nav>
+    </div>
+
+    <div class="app" id="app">
+      <div class="cw" id="cw">
+        <aside class="cw-side" aria-label="Examples">
+          <div class="cw-rl">Recent</div>
+          <div class="list" id="recent"></div>
+        </aside>
+        <div class="cw-main">
+          <div class="cw-top">
+            <span class="ttl-ic" id="ttlIc"></span>
+            <span class="ttl" id="ttl"></span>
+            <span class="pill" id="model">Example model</span>
+            <span class="grow"></span>
+            <button type="button" class="btn sm" id="ctxTop"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg><span>Show context</span></button>
+          </div>
+          <div class="cw-thread" id="thread" role="log" aria-label="Conversation" tabindex="0"></div>
+          <div class="cw-foot" id="foot">
+            <div class="chipbox" id="chipbox" hidden></div>
+            <div class="ctrl" id="bar" role="group" aria-label="Step controls">
+              <div class="ctrl-row">
+                <button type="button" class="cbtn" id="bBack" aria-label="Back one step"><svg class="ic" aria-hidden="true"><use href="#i-left"/></svg><span>Back</span></button>
+                <button type="button" class="cbtn primary" id="bPlay" aria-label="Play"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg><span>Play</span></button>
+                <button type="button" class="cbtn" id="bNext" aria-label="Next step"><span>Next</span><svg class="ic" aria-hidden="true"><use href="#i-right"/></svg></button>
+                <button type="button" class="cbtn" id="bReplay" aria-label="Replay from the start"><svg class="ic" aria-hidden="true"><use href="#i-replay"/></svg><span>Replay</span></button>
+                <button type="button" class="cbtn" id="bAll" aria-label="Show all steps (jump to the end)"><svg class="ic" aria-hidden="true"><use href="#i-end"/></svg><span>Show all</span></button>
+                <div class="seg" role="group" aria-label="Speed">
+                  <button type="button" data-sp="slow" aria-pressed="true">Slow</button>
+                  <button type="button" data-sp="normal" aria-pressed="false">Normal</button>
+                </div>
+              </div>
+              <p class="ctrl-label" id="bLabel" aria-live="polite"></p>
+              <div class="dots" id="dots" role="group" aria-label="Steps"></div>
+            </div>
+          </div>
+        </div>
+        <aside class="ctx" id="ctx" role="dialog" aria-labelledby="ctxTitle" hidden>
+          <div class="ctx-head">
+            <div><h2 id="ctxTitle">What the model received</h2><p class="ctx-sub" id="ctxSub"></p></div>
+            <button type="button" class="x" id="ctxClose" aria-label="Close context view"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+          </div>
+          <div class="ctx-nav" role="group" aria-label="Step controls for the context view">
+            <button type="button" class="cbtn" id="cBack" aria-label="Back one step"><svg class="ic" aria-hidden="true"><use href="#i-left"/></svg></button>
+            <span id="cLabel" class="ctx-step"></span>
+            <button type="button" class="cbtn" id="cNext" aria-label="Next step"><svg class="ic" aria-hidden="true"><use href="#i-right"/></svg></button>
+          </div>
+          <div class="ctx-body" id="ctxBody"></div>
+        </aside>
+      </div>
+      <div class="backdrop" id="backdrop" hidden></div>
+      <p class="note">Token counts are approximate. Where a file or page is long, the text shown is an excerpt and the count is for the full block. Real harnesses add more tool definitions and formatting than shown here.</p>
+    </div>
+  </section>
+
+  <section class="sec alt" id="how" aria-labelledby="howTitle">
+    <div class="sec-head">
+      <h2 id="howTitle">How it works</h2>
+      <p>Open <b>Show context</b> in any example. The panel lists everything the model received for that step, as coloured blocks. Each colour is a kind of block.</p>
+    </div>
+
+    <ol class="read">
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg></span><div><b>The bar</b><p>Shows how much of the window is in use. Zoom it to see the parts more clearly when little is used.</p></div></li>
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-sparkle"/></svg></span><div><b>The New tag</b><p>Marks blocks that were not in the previous request. Everything else was sent again.</p></div></li>
+      <li><span class="read-ic"><svg class="ic" aria-hidden="true"><use href="#i-eye"/></svg></span><div><b>Follows the step</b><p>While the panel is open, Back and Next update it, so you can watch the context grow.</p></div></li>
+    </ol>
+
+    <h3 class="blocks-h">The blocks</h3>
+    <ul class="blocks" id="blocks">
+      <li style="--c:var(--t-system)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><div><b>System prompt</b><p>The standing rules the harness gives the model before anything else.</p></div></li>
+      <li style="--c:var(--t-instructions)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg></span><div><b>Instruction file</b><p>Project notes the agent reads at the start of every session.</p></div></li>
+      <li style="--c:var(--t-tools)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg></span><div><b>Tool definitions</b><p>The name and inputs of every tool the model may ask the harness to run.</p></div></li>
+      <li style="--c:var(--t-skills)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span><div><b>Skill list</b><p>Only the names and one-line descriptions of the skills available.</p></div></li>
+      <li style="--c:var(--t-history)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span><div><b>Conversation history</b><p>Earlier messages and replies, resent in full each turn.</p></div></li>
+      <li style="--c:var(--t-user)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span><div><b>User message</b><p>What you have just typed.</p></div></li>
+      <li style="--c:var(--t-call)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span><div><b>Tool call</b><p>The model's request to run a tool with given inputs.</p></div></li>
+      <li style="--c:var(--t-result)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span><div><b>Tool result</b><p>What the tool returned, pasted into the context.</p></div></li>
+      <li style="--c:var(--t-retrieved)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-quote"/></svg></span><div><b>Retrieved snippets</b><p>Passages found by a search of your files.</p></div></li>
+      <li style="--c:var(--t-skill)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-box"/></svg></span><div><b>Loaded skill</b><p>The full text of a skill, read in only when it is needed.</p></div></li>
+      <li style="--c:var(--t-subagent)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg></span><div><b>Sub-agent summary</b><p>A helper works in its own context and returns only a summary.</p></div></li>
+      <li style="--c:var(--t-compaction)"><span class="sw-ic"><svg class="ic" aria-hidden="true"><use href="#i-compress"/></svg></span><div><b>Compaction summary</b><p>Older turns, shortened by the model to make room.</p></div></li>
+    </ul>
+  </section>
+
+  <section class="sec" id="about" aria-labelledby="aboutTitle">
+    <div class="sec-head">
+      <h2 id="aboutTitle">About</h2>
+    </div>
+    <div class="about">
+      <p>Context Explorer is one of the <a href="https://explainers.semanticmachines.fyi/">Semantic Machines explainers</a>, made by Dominik Lukeš.</p>
+      <p>All conversations are scripted. No model is running, and the files, websites and figures are invented. Token counts are rough estimates.</p>
+      <p>Real harnesses differ in detail, but the pattern is the same: the model sees one long piece of text, rebuilt on every turn.</p>
+    </div>
+  </section>
 </main>
+
+<footer class="site-foot">
+  <p>Dominik Lukeš · <a href="https://explainers.semanticmachines.fyi/">Semantic Machines</a>. More explainers at <a href="https://explainers.semanticmachines.fyi/">explainers.semanticmachines.fyi</a>.</p>
+</footer>
 <script src="scenarios.js"></script>
 <script src="app.js"></script>
 </body>

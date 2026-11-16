@@ -17,11 +17,6 @@ const TYPES = {
   history: 'Conversation history', user: 'User message', call: 'Tool call', result: 'Tool result',
   retrieved: 'Retrieved snippets', skill: 'Loaded skill', subagent: 'Sub-agent summary', compaction: 'Compaction summary'
 };
-const IC = {
-  think: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></svg>',
-  search: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
-  tool: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>'
-};
 
 /* ---------------------------------------------------------------- session: builds the context step by step */
 class Session {
@@ -121,6 +116,7 @@ class Session {
 
 /* ---------------------------------------------------------------- context panel */
 const ctxEl = $('#ctx'), ctxBody = $('#ctxBody'), cw = $('#cw'), backdrop = $('#backdrop');
+const ctxHooks = { opened() {}, closed() {} };
 let ctxOpener = null, ctxReq = null, ctxView = 0, zoom = null;
 
 function openCtx(req, opener, view) {
@@ -129,15 +125,26 @@ function openCtx(req, opener, view) {
   drawCtx();
   ctxBody.scrollTop = 0;
   $('#ctxClose').focus({ preventScroll: true });
+  ctxHooks.opened();
 }
 function closeCtx() {
   ctxEl.hidden = true; backdrop.hidden = true; cw.classList.remove('has-ctx');
   if (ctxOpener && document.contains(ctxOpener)) ctxOpener.focus({ preventScroll: true });
+  ctxHooks.closed();
 }
 $('#ctxClose').onclick = closeCtx;
 backdrop.onclick = closeCtx;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ctxEl.hidden) closeCtx(); });
 
+function followCtx(req) {
+  if (ctxEl.hidden) return;
+  const keep = ctxBody.scrollTop;
+  ctxReq = req; if (ctxView >= req.views.length) ctxView = 0;
+  drawCtx();
+  const nb = ctxBody.querySelectorAll('.blk.new');
+  if (nb.length) { const l = nb[nb.length - 1]; ctxBody.scrollTop = Math.max(0, l.offsetTop - ctxBody.clientHeight + l.offsetHeight + 24); }
+  else ctxBody.scrollTop = keep;
+}
 function drawCtx() {
   const req = ctxReq, v = req.views[ctxView];
   $('#ctxSub').textContent = req.title;
@@ -178,6 +185,13 @@ function drawCtx() {
   $('#col').onclick = () => ctxBody.querySelectorAll('.blk').forEach(d => d.open = false);
 }
 
+
+/* ---------------------------------------------------------------- icons (sprite in index.html) */
+const ic = (id, cls) => `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const SCIC = { chat: 'chat', web: 'globe', files: 'folder', data: 'chart', skills: 'workflow', long: 'compress' };
+const scIcon = sc => ic(SCIC[sc.id] || 'chat');
+const motionOk = () => !(REDUCE || FAST);
+
 /* ---------------------------------------------------------------- thread rows */
 function ctxButton(req, label) {
   const b = el(`<button type="button" class="mini">${label || 'Show context'}</button>`);
@@ -185,7 +199,7 @@ function ctxButton(req, label) {
   return b;
 }
 function textBlocks(text) {
-  const out = []; let list = null;
+  const out = [];
   text.split(/\n\n+/).forEach(par => {
     const lines = par.split('\n');
     if (lines.every(l => l.startsWith('- '))) out.push('<ul>' + lines.map(l => '<li>' + esc(l.slice(2)) + '</li>').join('') + '</ul>');
@@ -197,20 +211,21 @@ function argsHtml(ev) {
   if (ev.args && typeof ev.args.code === 'string') return `<div class="args"><b>${esc(ev.name)}</b>\n${esc(ev.args.code)}</div>`;
   return `<div class="args"><b>${esc(ev.name)}</b> ${esc(JSON.stringify(ev.args, null, 2))}</div>`;
 }
-function rowFor(step) {
-  const ev = step.ev;
-  if (step.k === 'think') return el(`<details class="t d think" open><summary>${IC.think}Thought for ${ev.secs || 3} s</summary><div class="body">${esc(ev.text)}</div></details>`);
+/* o: { newest, series, animate } */
+function rowFor(step, o) {
+  const ev = step.ev, fresh = o.newest ? ' fresh' : '';
+  if (step.k === 'think') return el(`<details class="t d think${fresh}"${o.newest ? ' open' : ''}><summary>${ic('think')}Thought for ${ev.secs || 3} s</summary><div class="body">${esc(ev.text)}</div></details>`);
   if (step.k === 'tool') {
-    const wrap = el(`<div class="t d ${ev.kind === 'search' ? 'search' : 'tool'}" style="display:block"></div>`);
-    const det = el(`<details class="d ${ev.kind === 'search' ? 'search' : 'tool'}"><summary>${IC[ev.kind === 'search' ? 'search' : 'tool']}${esc(ev.title)}</summary>`
+    const kind = ev.kind === 'search' ? 'search' : 'tool';
+    const wrap = el(`<div class="t${fresh}" style="position:relative"></div>`);
+    const det = el(`<details class="d ${kind}"${o.newest ? ' open' : ''}><summary>${ic(kind === 'search' ? 'search' : 'wrench')}${esc(ev.title)}</summary>`
       + `<div class="body">${(ev.chips && ev.chips.length) ? '<div class="srcs" style="margin-left:0">' + ev.chips.map(c => `<span class="src">${esc(c)}</span>`).join('') + '</div>' : ''}${argsHtml(ev)}<div class="res"><span class="rh">✓ ${ev.type === 'retrieved' ? 'Retrieved snippets' : 'Tool results'}</span>${esc(ev.result)}</div></div></details>`);
-    wrap.className = 't'; wrap.style.cssText = 'position:relative';
     const b = ctxButton(step.req, 'Show context for this step'); b.classList.add('rowctx');
     wrap.append(det, b);
     return wrap;
   }
   if (step.k === 'sub') {
-    const n = el(`<div class="t subrow"><b>Sub-agent: ${esc(ev.name)}</b> <span class="tk">worked in its own context and returned a summary</span>`
+    const n = el(`<div class="t subrow${fresh}"><b>Sub-agent: ${esc(ev.name)}</b> <span class="tk">worked in its own context and returned a summary</span>`
       + `<div style="margin-top:4px"><em>Task:</em> ${esc(ev.task)}</div><ul>${ev.steps.map(s => '<li>' + esc(s) + '</li>').join('')}</ul>`
       + `<div class="res"><span class="rh">✓ Summary returned to the main agent</span>${esc(ev.summary)}</div>`
       + `<div class="tk" style="margin-top:6px">Sub-agent context: ${fmt(step.subTotal)} tokens. Main context: ${fmt(step.mainTotal)} tokens.</div></div>`);
@@ -218,121 +233,309 @@ function rowFor(step) {
     return n;
   }
   if (step.k === 'compact') {
-    const n = el(`<div class="t harness"><b>Context compacted by the harness.</b> ${esc(ev.note)} The model summarised the older turns. The context went from ${fmt(step.before)} to ${fmt(step.after)} tokens.</div>`);
+    const n = el(`<div class="t harness${fresh}"><b>Context compacted by the harness.</b> ${esc(ev.note)} The model summarised the older turns. The context went from ${fmt(step.before)} to ${fmt(step.after)} tokens.</div>`);
     n.appendChild(ctxButton(step.req, 'Show before and after'));
     return n;
   }
-  /* answer */
-  const n = el(`<div class="t b"><div class="av" aria-hidden="true">✦</div><div class="txt">${textBlocks(ev.text)}${ev.quote ? `<div class="quote">${esc(ev.quote)}</div>` : ''}${ev.after ? textBlocks(ev.after) : ''}<div class="slot"></div><div class="acts"></div></div></div>`);
-  if (ev.widget) n.querySelector('.slot').appendChild(chartWidget(ev.widget));
+  const n = el(`<div class="t b${fresh}"><div class="av" aria-hidden="true">${ic('sparkle')}</div><div class="txt">${textBlocks(ev.text)}${ev.quote ? `<div class="quote">${esc(ev.quote)}</div>` : ''}${ev.after ? textBlocks(ev.after) : ''}<div class="slot"></div><div class="acts"></div></div></div>`);
+  if (ev.widget) n.querySelector('.slot').appendChild(chartWidget(ev.widget, o.series || 0, o.animate));
   n.querySelector('.acts').appendChild(ctxButton(step.req));
   return n;
 }
 
-function chartWidget(w) {
-  const root = el(`<div class="embed"><div class="ch-h">${esc(w.title)}</div><div class="ch-n">${esc(w.note)}</div><div class="tabs">${w.series.map((s, i) => `<button type="button" class="tab${i ? '' : ' on'}" data-i="${i}">${esc(s.name)}</button>`).join('')}</div><div class="rows"></div></div>`);
+function chartWidget(w, start, animate) {
+  const root = el(`<div class="embed"><div class="ch-h">${esc(w.title)}</div><div class="ch-n">${esc(w.note)}</div><div class="tabs">${w.series.map((s, i) => `<button type="button" class="tab${i === start ? ' on' : ''}" data-i="${i}">${esc(s.name)}</button>`).join('')}</div><div class="rows"></div></div>`);
   const rows = root.querySelector('.rows');
   const label = (s, v) => s.unit === '%' ? (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v) + '%' : '£' + v + 'k';
-  function draw(i, first) {
+  function draw(i, anim) {
     const s = w.series[i], vals = s.data.map(d => d[1]);
     const min = Math.min(0, ...vals), max = Math.max(0, ...vals), range = max - min || 1, z = -min / range * 100, top = Math.max(...vals);
     rows.innerHTML = s.data.map(d => `<div class="brow"><span>${esc(d[0])}</span><div class="btrack"><span class="zero" style="left:${z}%"></span><div class="bar" style="left:${z}%;width:0;background:${d[1] < 0 ? 'var(--muted)' : d[1] === top ? 'var(--c2)' : 'var(--c1)'}"></div></div><span class="num">${label(s, d[1])}</span></div>`).join('');
     const bars = rows.querySelectorAll('.bar');
-    setTimeout(() => s.data.forEach((d, k) => { const wd = Math.abs(d[1]) / range * 100; bars[k].style.left = (d[1] >= 0 ? z : z - wd) + '%'; bars[k].style.width = wd + '%'; }), 30);
+    const set = () => s.data.forEach((d, k) => { const wd = Math.abs(d[1]) / range * 100; bars[k].style.left = (d[1] >= 0 ? z : z - wd) + '%'; bars[k].style.width = wd + '%'; });
+    if (anim && motionOk()) setTimeout(set, 30); else { bars.forEach(b => b.style.transition = 'none'); set(); }
     rows.setAttribute('role', 'img');
     rows.setAttribute('aria-label', s.name + ': ' + s.data.map(d => d[0] + ' ' + label(s, d[1])).join(', '));
   }
-  root.querySelectorAll('.tab').forEach(b => b.onclick = () => { root.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b)); draw(+b.dataset.i); });
-  draw(0, true);
+  root.querySelectorAll('.tab').forEach(b => b.onclick = () => { root.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b)); draw(+b.dataset.i, true); });
+  draw(start, animate);
   return root;
 }
 
-/* ---------------------------------------------------------------- player */
-const thread = $('#thread'), foot = $('#foot');
-let cur = 0, session = null, gen = 0, busy = false, latest = null;
-
-function drawRecent() {
-  $('#recent').innerHTML = '';
-  SC.forEach((s, i) => {
-    const b = el(`<button type="button" class="cw-ri${i === cur ? ' cur' : ''}"${i === cur ? ' aria-current="true"' : ''}>${esc(s.title)}</button>`);
-    b.onclick = () => select(i, false);
-    $('#recent').appendChild(b);
+/* ---------------------------------------------------------------- step plan: one entry per DOM unit in reading order */
+const nWords = s => (String(s || '').trim().match(/\S+/g) || []).length;
+function planOf(sc) {
+  const plan = [];
+  sc.turns.forEach((t, ti) => {
+    plan.push({ k: 'user', turn: ti, label: 'Turn ' + (ti + 1) + ': your message', words: nWords(t.choices[0]) });
+    t.events.forEach((ev, ei) => {
+      const base = { k: ev.k, turn: ti, ei };
+      if (ev.k === 'think') plan.push({ ...base, label: 'Thought', words: nWords(ev.text) });
+      else if (ev.k === 'tool') plan.push({ ...base, label: ev.title, words: nWords(ev.result) + nWords(JSON.stringify(ev.args)) });
+      else if (ev.k === 'sub') plan.push({ ...base, label: 'Sub-agent: ' + ev.name, words: nWords(ev.summary) + nWords(ev.task) });
+      else if (ev.k === 'compact') plan.push({ ...base, label: 'Context compacted', words: nWords(ev.note) + 20 });
+      else {
+        plan.push({ ...base, label: 'Answer', words: nWords(ev.text) + nWords(ev.quote) });
+        if (ev.widget && ev.widget.series.length > 1) ev.widget.series.forEach((s, si) => { if (si) plan.push({ k: 'widget', turn: ti, ei, series: si, label: 'Chart view: ' + s.name, words: 8 }); });
+      }
+    });
   });
+  return plan;
+}
+
+/* ---------------------------------------------------------------- chat player: one showStep, one timer per chat */
+const thread = $('#thread'), chipbox = $('#chipbox'), dotsEl = $('#dots');
+let chat = null, cur = 0;
+
+function newChat(sc, speed) {
+  return { sc, plan: planOf(sc), n: 0, playing: false, speed: speed || 'slow', timer: null, streaming: false, chosen: {}, latest: null };
+}
+function clearTimer(c) { if (c.timer) { clearTimeout(c.timer); c.timer = null; } c.streaming = false; }
+function holdMs(c, n) {
+  if (FAST) return 15;
+  let s = Math.min(9, 2.5 + 0.25 * c.plan[n].words / 10);
+  if (c.speed === 'normal') s *= 0.6;
+  return s * 1000;
+}
+function scrollDown() { thread.scrollTop = thread.scrollHeight; }
+
+function schedule(c) {
+  if (!c.playing) return;
+  if (c.n >= c.plan.length - 1) { c.playing = false; updateControls(c); return; }
+  c.timer = setTimeout(() => { c.timer = null; showStep(c, c.n + 1, { stream: true }); }, holdMs(c, c.n));
+}
+function streamRow(c, row, done) {
+  const txt = row.querySelector('.txt'), items = [], seq = [];
+  const walker = document.createTreeWalker(txt, NodeFilter.SHOW_TEXT);
+  let nd;
+  while ((nd = walker.nextNode())) {
+    if (nd.parentElement.closest('.slot,.acts')) continue;
+    const it = { nd };
+    nd.data.split(/(\s+)/).forEach(p => seq.push([it, p]));
+    items.push(it); nd.data = '';
+  }
+  const per = 1000 / (c.speed === 'normal' ? 20 : 12);
+  let k = 0;
+  row.classList.add('streaming'); c.streaming = true;
+  const tick = () => {
+    let w = 0;
+    while (k < seq.length && w < 1) { const [it, p] = seq[k++]; it.nd.data += p; if (p.trim()) w++; }
+    scrollDown();
+    if (k >= seq.length) { c.streaming = false; c.timer = null; row.classList.remove('streaming'); done(); }
+    else c.timer = setTimeout(tick, per);
+  };
+  tick();
+}
+
+function showStep(c, n, o) {
+  o = o || {};
+  clearTimer(c);
+  const plan = c.plan, sc = c.sc;
+  n = Math.max(0, Math.min(plan.length - 1, n)); c.n = n;
+  const ws = {};
+  for (let i = 0; i <= n; i++) if (plan[i].k === 'widget') ws[plan[i].turn + ':' + plan[i].ei] = plan[i].series;
+  const session = new Session(sc);
+  let latest = session.initialReq(), steps = null, newestRow = null, newestStep = null;
+  thread.textContent = '';
+  for (let i = 0; i <= n; i++) {
+    const p = plan[i], newest = i === n;
+    if (p.k === 'user') {
+      const txt = c.chosen[p.turn] || sc.turns[p.turn].choices[0];
+      steps = session.runTurn(txt);
+      const r = el(`<div class="t u${newest ? ' fresh' : ''}"></div>`); r.textContent = txt;
+      thread.appendChild(r); if (newest) newestRow = r;
+      continue;
+    }
+    if (p.k === 'widget') continue;
+    const step = steps[p.ei];
+    if (step.req) latest = step.req;
+    const key = p.turn + ':' + p.ei, wn = plan[n];
+    const animate = newest || (wn.k === 'widget' && wn.turn === p.turn && wn.ei === p.ei);
+    const r = rowFor(step, { newest, series: ws[key] || 0, animate });
+    thread.appendChild(r);
+    if (newest) { newestRow = r; newestStep = p; }
+  }
+  c.latest = latest;
+  followCtx(latest);
+  updateControls(c);
+  drawChips(c);
+  scrollDown();
+  const canStream = o.stream && newestStep && newestStep.k === 'answer' && motionOk();
+  if (canStream) streamRow(c, newestRow, () => {
+    if (!c.playing) return;
+    c.timer = setTimeout(() => { c.timer = null; if (c.playing) { if (c.n >= c.plan.length - 1) { c.playing = false; updateControls(c); } else showStep(c, c.n + 1, { stream: true }); } }, c.speed === 'normal' ? 1500 : 2500);
+  });
+  else schedule(c);
+}
+/* controls */
+const bBack = $('#bBack'), bNext = $('#bNext'), bPlay = $('#bPlay'), bLabel = $('#bLabel');
+function drawDots(c) {
+  dotsEl.textContent = '';
+  c.plan.forEach((p, i) => {
+    const b = el(`<button type="button" class="dot${p.k === 'user' ? ' user' : ''}" aria-label="Step ${i + 1}: ${esc(p.label)}"></button>`);
+    b.onclick = () => { stop(c); showStep(c, i, {}); };
+    dotsEl.appendChild(b);
+  });
+}
+function updateControls(c) {
+  const N = c.plan.length, p = c.plan[c.n], atEnd = c.n >= N - 1;
+  bLabel.textContent = '';
+  bLabel.append(el(`<b>Step ${c.n + 1} of ${N}</b>`), document.createTextNode(' · ' + p.label));
+  $('#cLabel').textContent = 'Step ' + (c.n + 1) + ' of ' + N + ' · ' + p.label;
+  bBack.disabled = c.n === 0; bNext.disabled = atEnd;
+  $('#cBack').disabled = bBack.disabled; $('#cNext').disabled = bNext.disabled;
+  const lab = c.playing ? 'Pause' : (atEnd ? 'Play again' : 'Play');
+  bPlay.innerHTML = ic(c.playing ? 'pause' : 'play') + '<span>' + lab + '</span>';
+  bPlay.setAttribute('aria-label', lab); bPlay.setAttribute('aria-pressed', String(c.playing));
+  dotsEl.querySelectorAll('.dot').forEach((d, i) => {
+    d.classList.toggle('cur', i === c.n); d.classList.toggle('done', i < c.n);
+    if (i === c.n) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sp === c.speed)));
+  $('#bEx').hidden = !atEnd;
+}
+function drawChips(c) {
+  const p = c.plan[c.n];
+  chipbox.textContent = '';
+  if (p.k !== 'user') { chipbox.hidden = true; return; }
+  const t = c.sc.turns[p.turn], shown = c.chosen[p.turn] || t.choices[0];
+  chipbox.hidden = false;
+  chipbox.appendChild(el('<p class="lab">Your message above is a suggestion. Pick another wording to send it, or press Next. The reply is scripted, so any of them gets the same answer.</p>'));
+  const box = el('<div class="chips"></div>');
+  t.choices.forEach(txt => {
+    const b = el(`<button type="button" class="chip" aria-pressed="${txt === shown}"></button>`); b.textContent = txt;
+    b.onclick = () => { c.playing = false; c.chosen[p.turn] = txt; showStep(c, c.n + 1, { stream: true }); };
+    box.appendChild(b);
+  });
+  chipbox.appendChild(box);
+}
+function stop(c) { c.playing = false; clearTimer(c); }
+function pause(c) {
+  if (!c.playing && !c.streaming) return;
+  const was = c.streaming;
+  c.playing = false; clearTimer(c);
+  if (was) showStep(c, c.n, {}); else updateControls(c);
+}
+function play(c) {
+  if (c.playing) { pause(c); return; }
+  if (c.n >= c.plan.length - 1) { c.playing = true; showStep(c, 0, { stream: true }); return; }
+  c.playing = true; updateControls(c);
+  schedule(c);
+}
+const goNext = c => { stop(c); showStep(c, c.n + 1, { stream: true }); };
+const goBack = c => { stop(c); showStep(c, c.n - 1, {}); };
+
+bBack.onclick = () => goBack(chat);
+bNext.onclick = () => goNext(chat);
+$('#cBack').onclick = () => goBack(chat);
+$('#cNext').onclick = () => goNext(chat);
+bPlay.onclick = () => play(chat);
+$('#bReplay').onclick = () => { stop(chat); chat.chosen = {}; chat.playing = true; showStep(chat, 0, { stream: true }); };
+$('#bAll').onclick = () => { stop(chat); showStep(chat, chat.plan.length - 1, {}); };
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => { chat.speed = b.dataset.sp; updateControls(chat); if (chat.playing && !chat.streaming) { clearTimer(chat); schedule(chat); } });
+{
+  const ex = el('<button type="button" class="cbtn" id="bEx" hidden><span>Next example</span></button>');
+  ex.insertAdjacentHTML('beforeend', ic('right'));
+  ex.onclick = () => select((cur + 1) % SC.length, { last: false });
+  $('#bAll').after(ex);
+}
+$('#bar').addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') { e.preventDefault(); goBack(chat); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); goNext(chat); }
+  else if (e.key === ' ' && (e.target === $('#bar') || e.target === bPlay || e.target.classList.contains('dot'))) { e.preventDefault(); play(chat); }
+});
+thread.addEventListener('click', () => pause(chat));
+
+/* ---------------------------------------------------------------- scenario navigation */
+function stepCount(sc) { return planOf(sc).length; }
+function drawRecent() {
+  const box = $('#recent'); box.textContent = '';
+  SC.forEach((s, i) => {
+    const b = el(`<button type="button" class="cw-ri${i === cur ? ' cur' : ''}"${i === cur ? ' aria-current="true"' : ''}>${scIcon(s)}<span>${esc(s.title)}</span></button>`);
+    b.onclick = () => select(i, { last: true });
+    box.appendChild(b);
+  });
+  const st = $('#strip'); st.textContent = '';
+  SC.forEach((s, i) => {
+    const b = el(`<button type="button" class="sp"${i === cur ? ' aria-current="true"' : ''}>${scIcon(s)}<span>${esc(s.title)}</span></button>`);
+    b.onclick = () => select(i, { last: true, scroll: true });
+    st.appendChild(b);
+    if (i === cur) requestAnimationFrame(() => { const l = b.offsetLeft - (st.clientWidth - b.offsetWidth) / 2; st.scrollLeft = Math.max(0, l); });
+  });
+  document.querySelectorAll('.pk').forEach((b, i) => { b.classList.toggle('cur', i === cur); if (i === cur) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
 }
 function drawPicker() {
   const p = $('#picker');
   SC.forEach((s, i) => {
-    const b = el(`<button type="button" class="pk" role="listitem"><span class="n">${i + 1}</span><b>${esc(s.title)}</b><span class="d">${esc(s.short)}</span><span class="tn">${s.turns.length} turns</span></button>`);
-    b.onclick = () => select(i, true);
+    const b = el(`<button type="button" class="pk" role="listitem"><span class="pk-ic">${scIcon(s)}</span><span class="n">Example ${i + 1}</span><b>${esc(s.title)}</b><span class="d">${esc(s.short)}</span><span class="tn">${s.turns.length} turns · ${stepCount(s)} steps</span></button>`);
+    b.onclick = () => select(i, { last: true, scroll: true });
     p.appendChild(b);
   });
 }
-function select(i, scroll) {
-  cur = i; gen++;
-  if (!ctxEl.hidden) closeCtx();
-  history.replaceState(null, '', '#' + SC[i].id);
-  drawRecent(); reset();
-  if (scroll) { $('#app').scrollIntoView({ behavior: REDUCE || FAST ? 'auto' : 'smooth', block: 'start' }); }
-}
-function reset() {
-  gen++; busy = false;
-  const sc = SC[cur];
-  session = new Session(sc);
-  latest = session.initialReq();
+function scrollApp() { $('#app').scrollIntoView({ behavior: motionOk() ? 'smooth' : 'auto', block: 'start' }); }
+function select(i, o) {
+  o = o || {};
+  if (chat) stop(chat);
+  cur = i;
+  const sc = SC[i];
+  chat = newChat(sc, chat && chat.speed);
+  history.replaceState(null, '', '#' + sc.id);
   $('#ttl').textContent = sc.title;
-  thread.innerHTML = `<p class="empty"><b>${esc(sc.title)}.</b> ${esc(sc.blurb)} Choose a message below to start. The context already holds the parts set up before the chat; press Show context to look.</p>`;
-  thread.scrollTop = 0;
-  drawFoot();
-}
-function drawFoot() {
-  const sc = SC[cur];
-  foot.innerHTML = '';
-  if (busy) { foot.innerHTML = '<p class="lab">Replying…</p>'; return; }
-  if (session.turn >= sc.turns.length) {
-    foot.appendChild(el('<p class="done">End of this example. Open any Show context button above to compare the turns, or replay it.</p>'));
-    const r = el('<div class="foot-row"></div>');
-    const rb = el('<button type="button" class="btn">Replay</button>'); rb.onclick = reset;
-    const nb = el('<button type="button" class="btn ghost">Next example →</button>'); nb.onclick = () => select((cur + 1) % SC.length, false);
-    r.append(rb, nb); foot.appendChild(r);
-    return;
-  }
-  const t = sc.turns[session.turn];
-  foot.appendChild(el('<p class="lab">Suggested next messages. The reply is scripted, so any of them gets the same answer.</p>'));
-  const c = el('<div class="chips"></div>');
-  t.choices.forEach(txt => { const b = el(`<button type="button" class="chip">${esc(txt)}</button>`); b.onclick = () => send(txt); c.appendChild(b); });
-  foot.appendChild(c);
-  const r = el('<div class="foot-row"></div>');
-  const nb = el('<button type="button" class="btn" id="next">Next turn</button>'); nb.onclick = () => send(t.choices[0]);
-  r.append(nb, el(`<span class="tag">Turn ${session.turn + 1} of ${sc.turns.length}</span>`));
-  foot.appendChild(r);
-}
-function scrollDown() { thread.scrollTop = thread.scrollHeight; }
-function send(text) {
-  if (busy) return;
-  busy = true;
-  const my = gen;
-  const e = thread.querySelector('.empty'); if (e) e.remove();
-  thread.appendChild(el(`<div class="t u">${esc(text)}</div>`));
-  const steps = session.runTurn(text);
-  drawFoot(); scrollDown();
-  let i = 0;
-  const next = () => {
-    if (my !== gen) return;
-    if (i >= steps.length) { busy = false; drawFoot(); const n = $('#next'); if (n && !FAST) n.focus({ preventScroll: true }); scrollDown(); return; }
-    const s = steps[i++];
-    thread.appendChild(rowFor(s));
-    if (s.req) latest = s.req;
-    scrollDown();
-    DELAY ? setTimeout(next, DELAY) : next();
-  };
-  DELAY ? setTimeout(next, DELAY) : next();
+  $('#ttlIc').innerHTML = scIcon(sc);
+  drawRecent(); drawDots(chat);
+  showStep(chat, o.last ? chat.plan.length - 1 : 0, {});
+  if (o.scroll) scrollApp();
 }
 
-$('#ctxTop').onclick = () => openCtx(latest, $('#ctxTop'));
-$('#replay').onclick = reset;
+ctxHooks.opened = () => { $('#ctxTop span').textContent = 'Hide context'; };
+ctxHooks.closed = () => { $('#ctxTop span').textContent = 'Show context'; };
+$('#ctxTop').onclick = () => { if (ctxEl.hidden) openCtx(chat.latest, $('#ctxTop')); else closeCtx(); };
 
+/* ---------------------------------------------------------------- site header: menu, theme, section highlight */
+const nav = $('#siteNav'), menuBtn = $('#menuBtn');
+function setMenu(open) {
+  nav.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open));
+  menuBtn.querySelector('use').setAttribute('href', open ? '#i-x' : '#i-menu');
+  menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Menu');
+}
+menuBtn.onclick = () => setMenu(!nav.classList.contains('open'));
+nav.addEventListener('click', e => { if (e.target.closest('a')) setMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && nav.classList.contains('open')) { setMenu(false); menuBtn.focus(); } });
+document.addEventListener('click', e => { if (nav.classList.contains('open') && !e.target.closest('.site')) setMenu(false); });
+
+const THEMES = ['', 'light', 'dark'], themeBtn = $('#themeBtn');
+let theme = '';
+try { theme = localStorage.getItem('ce-theme') || ''; } catch (e) {}
+if (!THEMES.includes(theme)) theme = '';
+function applyTheme() {
+  const root = document.documentElement;
+  if (theme) root.setAttribute('data-theme', theme); else root.removeAttribute('data-theme');
+  themeBtn.querySelector('use').setAttribute('href', '#i-' + (theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'monitor'));
+  themeBtn.setAttribute('aria-label', 'Colour theme: ' + (theme || 'follows the system') + '. Press to change.');
+}
+themeBtn.onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % 3];
+  try { theme ? localStorage.setItem('ce-theme', theme) : localStorage.removeItem('ce-theme'); } catch (e) {}
+  applyTheme();
+};
+applyTheme();
+
+const secs = ['scenarios', 'how', 'about'].map(id => document.getElementById(id)), navLinks = [...nav.querySelectorAll('a')];
+let spyQueued = false;
+function spy() {
+  spyQueued = false;
+  let on = null;
+  secs.forEach(s => { if (s.getBoundingClientRect().top <= 140) on = s.id; });
+  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) on = 'about';
+  navLinks.forEach(a => { if (a.dataset.sec === on) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current'); });
+}
+addEventListener('scroll', () => { if (!spyQueued) { spyQueued = true; requestAnimationFrame(spy); } }, { passive: true });
+addEventListener('resize', spy);
+
+/* ---------------------------------------------------------------- start */
 drawPicker();
 const hash = location.hash.slice(1), hi = SC.findIndex(s => s.id === hash);
-cur = hi >= 0 ? hi : 0;
-drawRecent(); reset();
+select(hi >= 0 ? hi : 0, { last: hi >= 0 });
+if (hi >= 0) requestAnimationFrame(() => $('#app').scrollIntoView({ behavior: 'instant', block: 'start' }));
+spy();
 })();
