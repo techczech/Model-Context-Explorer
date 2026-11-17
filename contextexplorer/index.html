@@ -10,6 +10,19 @@
 (function(){var d=document.documentElement,q=new URLSearchParams(location.search),t=null;d.className='js'+(q.get('embed')?' embed-mode':'');try{t=localStorage.getItem('ce-theme');}catch(e){}if(q.get('theme'))t=q.get('theme');if(t==='light'||t==='dark')d.setAttribute('data-theme',t);})();
 </script>
 <link rel="stylesheet" href="app.css">
+<link rel="canonical" href="https://contextexplorer.semanticmachines.fyi/">
+<meta name="citation_title" content="Context Explorer: what a language model receives on every turn">
+<meta name="citation_author" content="Lukeš, Dominik">
+<meta name="citation_public_url" content="https://contextexplorer.semanticmachines.fyi/">
+<meta name="citation_language" content="en">
+<meta name="DC.type" content="webpage">
+<meta name="DC.title" content="Context Explorer: what a language model receives on every turn">
+<meta name="DC.creator" content="Lukeš, Dominik">
+<meta name="DC.publisher" content="Context Explorer">
+<meta name="DC.language" content="en-GB">
+<meta property="og:site_name" content="Context Explorer">
+<meta property="og:title" content="Context Explorer: what a language model receives on every turn">
+<meta property="og:url" content="https://contextexplorer.semanticmachines.fyi/">
 </head>
 <body>
 
@@ -240,9 +253,9 @@
 
 <footer class="site-foot">
   <p>Dominik Lukeš · <a href="https://explainers.semanticmachines.fyi/">Semantic Machines</a>. More explainers at <a href="https://explainers.semanticmachines.fyi/">explainers.semanticmachines.fyi</a>.</p>
-</footer>
+<details class="page-citation"><summary>Cite this page</summary><section class="cite" aria-labelledby="cite-h"><h2 id="cite-h">Cite this page</h2><p id="cite-text">Lukeš, Dominik (n.d.). Context Explorer: what a language model receives on every turn. Context Explorer. https://contextexplorer.semanticmachines.fyi/</p><button type="button" data-citation-copy>Copy citation</button></section></details></footer>
 <script src="real-sources.js"></script>
 <script src="scenarios.js"></script>
 <script src="app.js"></script>
-</body>
+<script>document.addEventListener('click',async function(e){const b=e.target.closest('[data-citation-copy]');if(!b)return;const t=document.getElementById('cite-text');let ok=false;try{await navigator.clipboard.writeText(t.textContent);ok=true}catch{const f=document.createElement('textarea');f.value=t.textContent;f.style.position='fixed';f.style.opacity='0';document.body.append(f);f.select();try{ok=document.execCommand('copy')}catch{}f.remove();b.focus()}b.textContent=ok?'Citation copied':'Copy failed: select and copy the citation above';b.setAttribute('aria-live','polite')});</script></body>
 </html>
